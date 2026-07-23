@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 
 #[cfg(windows)]
 use windows::Win32::Security::Cryptography::{
-    CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPT_PROTECT_UI_FORBIDDEN,
+    CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
 };
 
 #[derive(Clone)]
@@ -130,13 +130,13 @@ impl SecurityManager {
                 None,
                 None,
                 None,
-                CRYPT_PROTECT_UI_FORBIDDEN,
+                CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output_blob,
             );
 
             if res.is_ok() && !output_blob.pbData.is_null() {
                 let result = std::slice::from_raw_parts(output_blob.pbData, output_blob.cbData as usize).to_vec();
-                windows::Win32::System::Memory::LocalFree(windows::Win32::Foundation::HLOCAL(output_blob.pbData as _));
+                let _ = windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(output_blob.pbData as _));
                 Ok(result)
             } else {
                 Err("DPAPI encryption failed".to_string())
@@ -163,13 +163,13 @@ impl SecurityManager {
                 None,
                 None,
                 None,
-                CRYPT_PROTECT_UI_FORBIDDEN,
+                CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output_blob,
             );
 
             if res.is_ok() && !output_blob.pbData.is_null() {
                 let result = std::slice::from_raw_parts(output_blob.pbData, output_blob.cbData as usize).to_vec();
-                windows::Win32::System::Memory::LocalFree(windows::Win32::Foundation::HLOCAL(output_blob.pbData as _));
+                let _ = windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(output_blob.pbData as _));
                 Ok(result)
             } else {
                 Err("DPAPI decryption failed".to_string())
