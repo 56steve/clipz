@@ -6,7 +6,7 @@ pub mod security;
 use db::{ClipItem, DatabaseManager};
 use security::SecurityManager;
 use std::sync::{mpsc, Arc, Mutex};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager as _, State};
 
 pub struct AppState {
     pub db: DatabaseManager,
