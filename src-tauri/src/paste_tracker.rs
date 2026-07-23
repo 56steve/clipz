@@ -14,7 +14,7 @@ use windows::{
     },
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PasteEvent {
     pub target_app: String,
     pub timestamp: i64,

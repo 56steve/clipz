@@ -46,7 +46,7 @@ impl ClipboardListener {
 
                 RegisterClassW(&wnd_class);
 
-                let hwnd = CreateWindowExW(
+                let hwnd = match CreateWindowExW(
                     Default::default(),
                     class_name,
                     windows::core::w!("ClipzClipboardListenerWindow"),
@@ -59,12 +59,13 @@ impl ClipboardListener {
                     None,
                     instance,
                     None,
-                );
-
-                if hwnd.0.is_null() {
-                    eprintln!("[Clipz] Failed to create hidden message window for clipboard listener");
-                    return;
-                }
+                ) {
+                    Ok(h) => h,
+                    Err(_) => {
+                        eprintln!("[Clipz] Failed to create hidden message window for clipboard listener");
+                        return;
+                    }
+                };
 
                 if AddClipboardFormatListener(hwnd).is_err() {
                     eprintln!("[Clipz] Failed to register AddClipboardFormatListener");
@@ -118,11 +119,11 @@ unsafe extern "system" fn window_proc(
 fn read_clipboard_text() -> Option<String> {
     unsafe {
         const CF_UNICODETEXT: u32 = 13;
-        if !IsClipboardFormatAvailable(CF_UNICODETEXT).as_bool() {
+        if IsClipboardFormatAvailable(CF_UNICODETEXT).is_err() {
             return None;
         }
 
-        if !OpenClipboard(HWND::default()).as_bool() {
+        if OpenClipboard(HWND::default()).is_err() {
             return None;
         }
 

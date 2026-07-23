@@ -69,7 +69,7 @@ fn copy_to_clipboard(
         std::ptr::copy_nonoverlapping(utf16.as_ptr() as *const u8, ptr as *mut u8, bytes_len);
         let _ = GlobalUnlock(hmem);
 
-        if OpenClipboard(HWND::default()).as_bool() {
+        if OpenClipboard(HWND::default()).is_ok() {
             let _ = EmptyClipboard();
             const CF_UNICODETEXT: u32 = 13;
             let _ = SetClipboardData(CF_UNICODETEXT, windows::Win32::Foundation::HANDLE(hmem.0));
