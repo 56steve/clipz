@@ -3,7 +3,6 @@ use std::thread;
 
 #[cfg(windows)]
 use windows::{
-    core::PCWSTR,
     Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
     Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, VK_CONTROL, VK_V,

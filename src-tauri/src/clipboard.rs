@@ -76,7 +76,7 @@ impl ClipboardListener {
 
                 let mut msg = MSG::default();
                 while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE).as_bool()
-                    || GetMessageW_blocking(&mut msg)
+                    || get_message_w_blocking(&mut msg)
                 {
                     if msg.message == WM_CLIPBOARDUPDATE {
                         if let Some(text) = read_clipboard_text() {
@@ -101,7 +101,7 @@ impl ClipboardListener {
 }
 
 #[cfg(windows)]
-unsafe fn GetMessageW_blocking(msg: *mut MSG) -> bool {
+unsafe fn get_message_w_blocking(msg: *mut MSG) -> bool {
     windows::Win32::UI::WindowsAndMessaging::GetMessageW(msg, HWND::default(), 0, 0).as_bool()
 }
 
