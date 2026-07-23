@@ -149,7 +149,7 @@ pub fn run() {
             let state_clip = Arc::clone(&app_state_clip);
 
             // Processing thread for Captured Clips
-            tokio::spawn(async move {
+            std::thread::spawn(move || {
                 while let Ok(raw_event) = clip_rx.recv() {
                     let is_sensitive = SecurityManager::is_sensitive_source(&raw_event.source_app)
                         || SecurityManager::is_sensitive_pattern(&raw_event.content);
@@ -192,7 +192,7 @@ pub fn run() {
 
             // Processing thread for Paste Tracking Events
             let handle_paste = handle.clone();
-            tokio::spawn(async move {
+            std::thread::spawn(move || {
                 while let Ok(paste_event) = paste_rx.recv() {
                     let _ = handle_paste.emit("paste-event", &paste_event);
                 }
