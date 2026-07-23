@@ -188,7 +188,7 @@ class ClipzApp {
     this.notchShell.classList.add('collapsed');
     this.searchInput.blur();
     try {
-      await getCurrentWindow().setSize(new LogicalSize(700, 52));
+      await getCurrentWindow().setSize(new LogicalSize(700, 48));
     } catch (_) {}
   }
 
