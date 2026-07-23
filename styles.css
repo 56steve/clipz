@@ -1,0 +1,446 @@
+/* Clipz - Glassmorphic Dynamic Island Notch Design System */
+
+:root {
+  --bg-dark: rgba(11, 15, 25, 0.85);
+  --bg-card: rgba(22, 28, 45, 0.7);
+  --bg-card-hover: rgba(32, 41, 66, 0.85);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(99, 102, 241, 0.5);
+  
+  --accent-primary: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.35);
+  --accent-success: #10b981;
+  --accent-warning: #f59e0b;
+  --accent-sensitive: #ef4444;
+
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --text-dim: #6b7280;
+
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --radius-notch: 20px;
+  --radius-card: 12px;
+  --radius-pill: 9999px;
+  
+  --transition-dynamic: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: transparent;
+  color: var(--text-main);
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 0px;
+}
+
+/* Notch Shell Floating Top-Center Container */
+.notch-shell {
+  width: 95%;
+  max-width: 660px;
+  margin: 0 auto;
+  background: var(--bg-dark);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--border-glass);
+  border-top: none;
+  border-radius: 0 0 var(--radius-notch) var(--radius-notch);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 20px var(--accent-glow);
+  transition: var(--transition-dynamic);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Collapsed Pill State */
+.notch-shell.collapsed {
+  max-height: 48px;
+}
+
+.notch-shell.expanded {
+  max-height: 480px;
+  height: 480px;
+}
+
+/* Notch Header Bar */
+.notch-header {
+  height: 48px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.notch-shell.expanded .notch-header {
+  border-bottom-color: var(--border-glass);
+}
+
+.pill-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notch-logo-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent-primary);
+  animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.6; }
+}
+
+.notch-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 1.2px;
+  color: var(--text-main);
+}
+
+.pill-stream-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  margin: 0 16px;
+  overflow: hidden;
+}
+
+.stream-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-success);
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.5px;
+}
+
+.stream-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+.notch-shell.expanded #toggle-expand-btn svg {
+  transform: rotate(180deg);
+}
+
+/* Notch Body Drawer */
+.notch-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 14px 16px;
+  gap: 12px;
+  overflow: hidden;
+}
+
+/* Search Section */
+.search-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-dim);
+}
+
+#search-input {
+  width: 100%;
+  height: 38px;
+  background: rgba(15, 20, 32, 0.8);
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  padding: 0 100px 0 38px;
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+#search-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.shortcut-badge {
+  position: absolute;
+  right: 10px;
+  font-size: 10px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Category Filter Pills */
+.filter-pills {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.filter-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  color: var(--text-muted);
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.filter-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+.filter-btn.active {
+  background: var(--accent-primary);
+  color: #fff;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Timeline Stream Cards */
+.timeline-section {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.timeline-section::-webkit-scrollbar {
+  width: 5px;
+}
+.timeline-section::-webkit-scrollbar-track {
+  background: transparent;
+}
+.timeline-section::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+.timeline-section::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  gap: 6px;
+  padding: 40px 0;
+}
+.empty-icon {
+  font-size: 32px;
+  margin-bottom: 4px;
+}
+
+.clips-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Individual Clip Card */
+.clip-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-card);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.clip-card:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(99, 102, 241, 0.3);
+  transform: translateY(-1px);
+}
+
+.clip-card.pinned {
+  border-left: 3px solid var(--accent-warning);
+}
+
+.clip-card.sensitive-card {
+  border-left: 3px solid var(--accent-sensitive);
+}
+
+.clip-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+.app-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.app-badge {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-main);
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.clip-card:hover .card-actions {
+  opacity: 1;
+}
+
+.action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+}
+.action-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.clip-content {
+  font-size: 12.5px;
+  color: var(--text-main);
+  line-height: 1.4;
+  word-break: break-word;
+  white-space: pre-wrap;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+.clip-content.code-font {
+  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.25);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: #a5b4fc;
+}
+
+.sensitive-masked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fca5a5;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.reveal-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.reveal-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+/* Footer Status Bar */
+.notch-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding-top: 4px;
+  border-top: 1px solid var(--border-glass);
+}
+
+.status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-success);
+  border-radius: 50%;
+}
+
+.security-badge {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}

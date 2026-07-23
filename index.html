@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clipz - Clipboard Notch Hub</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Floating Top-Center Dynamic Island Notch Shell -->
+  <div id="notch-shell" class="notch-shell collapsed">
+    
+    <!-- Collapsed Notch Header / Pill Bar -->
+    <header id="notch-header" class="notch-header">
+      <div class="pill-brand">
+        <span class="notch-logo-dot"></span>
+        <span class="notch-title">CLIPZ</span>
+      </div>
+      <div class="pill-stream-preview" id="pill-preview">
+        <span class="stream-badge" id="stream-badge">LIVE</span>
+        <span class="stream-text" id="stream-text">Listening for copied clips...</span>
+      </div>
+      <div class="pill-actions">
+        <button id="toggle-expand-btn" class="icon-btn" title="Toggle Expand (Ctrl+Space)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Expanded Notch Drawer Body -->
+    <main id="notch-body" class="notch-body">
+      <!-- Search & Quick Filter Bar -->
+      <section class="search-section">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="search-input" placeholder="Search clips (FTS5 powered)..." autofocus />
+          <kbd class="shortcut-badge">Esc to collapse</kbd>
+        </div>
+
+        <div class="filter-pills">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="text">Text</button>
+          <button class="filter-btn" data-filter="code">Code</button>
+          <button class="filter-btn" data-filter="link">Links</button>
+          <button class="filter-btn" data-filter="sensitive">🔒 Sensitive</button>
+        </div>
+      </section>
+
+      <!-- Clipboard Timeline Stream -->
+      <section class="timeline-section" id="timeline-section">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">📋</div>
+          <p>No clips recorded yet.</p>
+          <span>Copy text in any application to stream it here.</span>
+        </div>
+        <div class="clips-container" id="clips-container"></div>
+      </section>
+
+      <!-- Notch Footer / Status bar -->
+      <footer class="notch-footer">
+        <div class="status-left">
+          <span class="status-indicator"></span>
+          <span id="clip-count">0 items stored</span>
+        </div>
+        <div class="status-right">
+          <span class="security-badge" title="Password Masking & 60s RAM TTL active">🛡️ DPAPI & RAM Protection</span>
+        </div>
+      </footer>
+    </main>
+
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
