@@ -142,6 +142,9 @@ pub fn run() {
             let (paste_tx, paste_rx) = mpsc::channel::<paste_tracker::PasteEvent>();
             paste_tracker::PasteTracker::start_tracking(paste_tx);
 
+            // 3. Start RAM TTL Security Cleanup Task
+            app_state_clip.security.start_cleanup_task();
+
             let handle_clip = handle.clone();
             let state_clip = Arc::clone(&app_state_clip);
 
