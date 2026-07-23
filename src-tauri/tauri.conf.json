@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Clipz",
         "width": 700,
         "height": 500,
+        "center": true,
         "resizable": false,
         "decorations": false,
         "transparent": true,

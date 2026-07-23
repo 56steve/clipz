@@ -145,6 +145,16 @@ pub fn run() {
             // 3. Start RAM TTL Security Cleanup Task
             app_state_clip.security.start_cleanup_task();
 
+            // 4. Position Window at Top-Center of Primary Monitor
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(Some(monitor)) = window.primary_monitor() {
+                    let monitor_size = monitor.size();
+                    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(700, 500));
+                    let x = (monitor_size.width as i32 - window_size.width as i32) / 2;
+                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, 0)));
+                }
+            }
+
             let handle_clip = handle.clone();
             let state_clip = Arc::clone(&app_state_clip);
 
