@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 
 interface ClipItem {
   id: string;
@@ -171,18 +172,24 @@ class ClipzApp {
     }
   }
 
-  private expandNotch() {
+  private async expandNotch() {
     this.isExpanded = true;
+    try {
+      await getCurrentWindow().setSize(new LogicalSize(700, 500));
+    } catch (_) {}
     this.notchShell.classList.remove('collapsed');
     this.notchShell.classList.add('expanded');
     setTimeout(() => this.searchInput.focus(), 100);
   }
 
-  private collapseNotch() {
+  private async collapseNotch() {
     this.isExpanded = false;
     this.notchShell.classList.remove('expanded');
     this.notchShell.classList.add('collapsed');
     this.searchInput.blur();
+    try {
+      await getCurrentWindow().setSize(new LogicalSize(700, 52));
+    } catch (_) {}
   }
 
   private getFilteredClips(): ClipItem[] {

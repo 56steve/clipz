@@ -34,9 +34,14 @@
   user-select: none;
 }
 
+html, body {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+}
+
 body {
   font-family: var(--font-sans);
-  background: transparent;
   color: var(--text-main);
   overflow: hidden;
   height: 100vh;
@@ -67,6 +72,12 @@ body {
 /* Collapsed Pill State */
 .notch-shell.collapsed {
   max-height: 48px;
+  height: 48px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.notch-shell.collapsed .notch-body {
+  display: none !important;
 }
 
 .notch-shell.expanded {

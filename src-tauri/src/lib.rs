@@ -149,7 +149,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 if let Ok(Some(monitor)) = window.primary_monitor() {
                     let monitor_size = monitor.size();
-                    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(700, 500));
+                    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(700, 52));
                     let x = (monitor_size.width as i32 - window_size.width as i32) / 2;
                     let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, 0)));
                 }
