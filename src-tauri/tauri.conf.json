@@ -12,12 +12,15 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Clipz",
         "width": 700,
-        "height": 500,
+        "height": 44,
+        "center": true,
         "resizable": false,
         "decorations": false,
         "transparent": true,
+        "shadow": false,
         "alwaysOnTop": true,
         "visible": true,
         "skipTaskbar": true
