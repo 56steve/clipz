@@ -31,16 +31,26 @@ fn search_clips(state: State<'_, Arc<AppState>>, query: String) -> Result<Vec<Cl
 }
 
 #[tauri::command]
+fn get_paste_history(
+    state: State<'_, Arc<AppState>>,
+    id: String,
+) -> Result<Vec<db::PasteLogItem>, String> {
+    state.db.get_paste_history(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn copy_to_clipboard(
     state: State<'_, Arc<AppState>>,
     id: Option<String>,
     content: String,
+    auto_paste: Option<bool>,
 ) -> Result<(), String> {
     #[cfg(windows)]
     unsafe {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::System::DataExchange::{EmptyClipboard, OpenClipboard, SetClipboardData, CloseClipboard};
         use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+        use clipboard::base64_decode;
 
         let target_text = if let Some(clip_id) = &id {
             if let Some(sensitive_str) = state.security.get_transient(clip_id) {
@@ -51,6 +61,50 @@ fn copy_to_clipboard(
         } else {
             content
         };
+
+        if let Some(clip_id) = &id {
+            *state.active_clip_id.lock().unwrap() = Some(clip_id.clone());
+        }
+
+        let target_app = paste_tracker::get_active_app_name();
+
+        if target_text.starts_with("data:image/") {
+            if let Some(pos) = target_text.find(";base64,") {
+                let b64_str = &target_text[pos + 8..];
+                if let Ok(bmp_bytes) = base64_decode(b64_str) {
+                    let dib_bytes = if bmp_bytes.len() > 14 && &bmp_bytes[0..2] == b"BM" {
+                        &bmp_bytes[14..]
+                    } else {
+                        &bmp_bytes[..]
+                    };
+
+                    let hmem = GlobalAlloc(GMEM_MOVEABLE, dib_bytes.len());
+                    if let Ok(hmem) = hmem {
+                        let ptr = GlobalLock(hmem);
+                        if !ptr.is_null() {
+                            std::ptr::copy_nonoverlapping(dib_bytes.as_ptr(), ptr as *mut u8, dib_bytes.len());
+                            let _ = GlobalUnlock(hmem);
+
+                            if OpenClipboard(HWND::default()).is_ok() {
+                                let _ = EmptyClipboard();
+                                const CF_DIB: u32 = 8;
+                                let _ = SetClipboardData(CF_DIB, windows::Win32::Foundation::HANDLE(hmem.0));
+                                let _ = CloseClipboard();
+
+                                if let Some(clip_id) = &id {
+                                    let _ = state.db.log_paste(clip_id, &target_app);
+                                }
+
+                                if auto_paste.unwrap_or(false) {
+                                    paste_tracker::simulate_paste();
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         let utf16: Vec<u16> = target_text.encode_utf16().chain(std::iter::once(0)).collect();
         let bytes_len = utf16.len() * 2;
@@ -75,8 +129,12 @@ fn copy_to_clipboard(
             let _ = SetClipboardData(CF_UNICODETEXT, windows::Win32::Foundation::HANDLE(hmem.0));
             let _ = CloseClipboard();
 
-            if let Some(clip_id) = id {
-                let _ = state.db.increment_paste(&clip_id);
+            if let Some(clip_id) = &id {
+                let _ = state.db.log_paste(clip_id, &target_app);
+            }
+
+            if auto_paste.unwrap_or(false) {
+                paste_tracker::simulate_paste();
             }
             return Ok(());
         }
@@ -117,6 +175,33 @@ fn toggle_notch(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn hide_window(window: tauri::Window) -> Result<(), String> {
+    let _ = window.hide();
+    Ok(())
+}
+
+#[tauri::command]
+fn show_window(window: tauri::Window) -> Result<(), String> {
+    let _ = window.show();
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn expand_window(window: tauri::Window) -> Result<(), String> {
+    let _ = window.show();
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(700.0, 500.0)));
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+fn collapse_window(window: tauri::Window) -> Result<(), String> {
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(700.0, 44.0)));
+    Ok(())
+}
+
 pub fn run() {
     let db = DatabaseManager::new().expect("Failed to initialize SQLite database");
     let security = SecurityManager::new();
@@ -149,10 +234,55 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 if let Ok(Some(monitor)) = window.primary_monitor() {
                     let monitor_size = monitor.size();
-                    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(700, 48));
+                    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(700, 28));
                     let x = (monitor_size.width as i32 - window_size.width as i32) / 2;
                     let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, 0)));
                 }
+            }
+
+            // 5. System Tray Icon Setup
+            let open_item = tauri::menu::MenuItem::with_id(app, "open", "Open Clipz (Alt+C)", true, None::<&str>)?;
+            let hide_item = tauri::menu::MenuItem::with_id(app, "hide", "Hide Clipz", true, None::<&str>)?;
+            let quit_item = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let tray_menu = tauri::menu::Menu::with_items(app, &[&open_item, &hide_item, &quit_item])?;
+
+            if let Some(icon) = app.default_window_icon() {
+                let _tray = tauri::tray::TrayIconBuilder::new()
+                    .icon(icon.clone())
+                    .menu(&tray_menu)
+                    .on_menu_event(|app_handle, event| match event.id.as_ref() {
+                        "open" => {
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "hide" => {
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                        }
+                        "quit" => {
+                            app_handle.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = event {
+                            let app_handle = tray.app_handle();
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                if let Ok(is_visible) = window.is_visible() {
+                                    if is_visible {
+                                        let _ = window.hide();
+                                    } else {
+                                        let _ = window.show();
+                                        let _ = window.set_focus();
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .build(app);
             }
 
             let handle_clip = handle.clone();
@@ -195,16 +325,38 @@ pub fn run() {
                     // Only save to DB if NOT sensitive or if masked representation
                     let _ = state_clip.db.insert_clip(&item);
 
+                    // Update active clip ID for paste tracking
+                    *state_clip.active_clip_id.lock().unwrap() = Some(clip_id.clone());
+
                     // Emit real-time stream update to WebView Notch UI
                     let _ = handle_clip.emit("new-clip", &item);
                 }
             });
 
-            // Processing thread for Paste Tracking Events
+            // Processing thread for Paste Tracking Events & Hotkeys
             let handle_paste = handle.clone();
+            let state_paste = Arc::clone(&app_state_clip);
             std::thread::spawn(move || {
                 while let Ok(paste_event) = paste_rx.recv() {
-                    let _ = handle_paste.emit("paste-event", &paste_event);
+                    if paste_event.target_app == "HOTKEY_ALT_C" {
+                        if let Some(window) = handle_paste.get_webview_window("main") {
+                            if let Ok(is_visible) = window.is_visible() {
+                                if is_visible {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                        let _ = handle_paste.emit("toggle-notch-hotkey", ());
+                    } else {
+                        let active_id = state_paste.active_clip_id.lock().unwrap().clone();
+                        if let Some(ref clip_id) = active_id {
+                            let _ = state_paste.db.log_paste(clip_id, &paste_event.target_app);
+                        }
+                        let _ = handle_paste.emit("paste-event", &paste_event);
+                    }
                 }
             });
 
@@ -217,7 +369,12 @@ pub fn run() {
             delete_clip,
             toggle_pin,
             reveal_sensitive,
-            toggle_notch
+            toggle_notch,
+            hide_window,
+            show_window,
+            expand_window,
+            collapse_window,
+            get_paste_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -228,6 +385,9 @@ fn classify_content(content: &str, is_sensitive: bool) -> String {
         return "sensitive".to_string();
     }
     let trimmed = content.trim();
+    if trimmed.starts_with("data:image/") {
+        return "image".to_string();
+    }
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") || trimmed.starts_with("www.") {
         return "link".to_string();
     }

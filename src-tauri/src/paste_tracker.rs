@@ -5,7 +5,7 @@ use std::thread;
 use windows::{
     Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
     Win32::UI::Input::KeyboardAndMouse::{
-        GetAsyncKeyState, VK_CONTROL, VK_V,
+        GetAsyncKeyState, VK_CONTROL, VK_MENU, VK_V,
     },
     Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, GetMessageW, KBDLLHOOKSTRUCT, SetWindowsHookExW, UnhookWindowsHookEx,
@@ -59,7 +59,19 @@ static mut HOOK_HANDLE: Option<HHOOK> = None;
 unsafe extern "system" fn keyboard_proc(ncode: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if ncode >= 0 && (wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN) {
         let kbd = *(lparam.0 as *const KBDLLHOOKSTRUCT);
-        if kbd.vkCode == VK_V.0 as u32 {
+        
+        // Detect Alt + C global shortcut (0x43 is 'C')
+        if kbd.vkCode == 0x43 {
+            let alt_pressed = (kbd.flags.0 & 0x20 != 0) || ((GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0);
+            if alt_pressed {
+                if let Some(ref tx) = PASTE_TX {
+                    let _ = tx.send(PasteEvent {
+                        target_app: "HOTKEY_ALT_C".to_string(),
+                        timestamp: chrono_now_secs(),
+                    });
+                }
+            }
+        } else if kbd.vkCode == VK_V.0 as u32 {
             let ctrl_pressed = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
             if ctrl_pressed {
                 let target_app = get_active_app_name();
@@ -78,7 +90,72 @@ unsafe extern "system" fn keyboard_proc(ncode: i32, wparam: WPARAM, lparam: LPAR
 }
 
 #[cfg(windows)]
-fn get_active_app_name() -> String {
+pub fn simulate_paste() {
+    unsafe {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL, VK_V,
+        };
+
+        let inputs = [
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_CONTROL,
+                        wScan: 0,
+                        dwFlags: Default::default(),
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_V,
+                        wScan: 0,
+                        dwFlags: Default::default(),
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_V,
+                        wScan: 0,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            },
+            INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VK_CONTROL,
+                        wScan: 0,
+                        dwFlags: KEYEVENTF_KEYUP,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            },
+        ];
+
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn simulate_paste() {}
+
+#[cfg(windows)]
+pub fn get_active_app_name() -> String {
     unsafe {
         let hwnd = windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
         if hwnd.0.is_null() {
@@ -114,6 +191,11 @@ fn get_active_app_name() -> String {
 
         "Unknown App".to_string()
     }
+}
+
+#[cfg(not(windows))]
+pub fn get_active_app_name() -> String {
+    "Desktop".to_string()
 }
 
 fn chrono_now_secs() -> i64 {
