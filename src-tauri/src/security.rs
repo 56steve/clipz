@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 
 #[cfg(windows)]
 use windows::Win32::Security::Cryptography::{
-    CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPT_PROTECT_UI_FORBIDDEN,
+    CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
 };
 
 #[derive(Clone)]
@@ -24,11 +24,14 @@ pub struct SecurityManager {
 
 impl SecurityManager {
     pub fn new() -> Self {
-        let store = Arc::new(Mutex::new(HashMap::<String, SensitiveItem>::new()));
-        let store_clone = Arc::clone(&store);
+        Self {
+            transient_store: Arc::new(Mutex::new(HashMap::<String, SensitiveItem>::new())),
+        }
+    }
 
-        // Background TTL cleanup thread (purges RAM items after 60 seconds)
-        tokio::spawn(async move {
+    pub fn start_cleanup_task(&self) {
+        let store_clone = Arc::clone(&self.transient_store);
+        tauri::async_runtime::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 let mut guard = store_clone.lock().unwrap();
@@ -36,10 +39,6 @@ impl SecurityManager {
                 guard.retain(|_, item| now.duration_since(item.created_at).as_secs() < item.ttl_secs);
             }
         });
-
-        Self {
-            transient_store: store,
-        }
     }
 
     pub fn is_sensitive_source(app_name: &str) -> bool {
@@ -130,13 +129,13 @@ impl SecurityManager {
                 None,
                 None,
                 None,
-                CRYPT_PROTECT_UI_FORBIDDEN,
+                CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output_blob,
             );
 
             if res.is_ok() && !output_blob.pbData.is_null() {
                 let result = std::slice::from_raw_parts(output_blob.pbData, output_blob.cbData as usize).to_vec();
-                windows::Win32::System::Memory::LocalFree(windows::Win32::Foundation::HLOCAL(output_blob.pbData as _));
+                let _ = windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(output_blob.pbData as _));
                 Ok(result)
             } else {
                 Err("DPAPI encryption failed".to_string())
@@ -163,13 +162,13 @@ impl SecurityManager {
                 None,
                 None,
                 None,
-                CRYPT_PROTECT_UI_FORBIDDEN,
+                CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output_blob,
             );
 
             if res.is_ok() && !output_blob.pbData.is_null() {
                 let result = std::slice::from_raw_parts(output_blob.pbData, output_blob.cbData as usize).to_vec();
-                windows::Win32::System::Memory::LocalFree(windows::Win32::Foundation::HLOCAL(output_blob.pbData as _));
+                let _ = windows::Win32::Foundation::LocalFree(windows::Win32::Foundation::HLOCAL(output_blob.pbData as _));
                 Ok(result)
             } else {
                 Err("DPAPI decryption failed".to_string())

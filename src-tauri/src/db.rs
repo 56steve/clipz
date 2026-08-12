@@ -9,11 +9,19 @@ pub struct ClipItem {
     pub id: String,
     pub content: String,
     pub source_app: String,
-    pub category: String, // "text", "code", "link", "sensitive"
+    pub category: String, // "text", "code", "link", "sensitive", "image"
     pub is_sensitive: bool,
     pub is_pinned: bool,
     pub created_at: i64,
     pub paste_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PasteLogItem {
+    pub id: i64,
+    pub clip_id: String,
+    pub target_app: String,
+    pub pasted_at: i64,
 }
 
 pub struct DatabaseManager {
@@ -46,6 +54,14 @@ impl DatabaseManager {
                 is_pinned INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 paste_count INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS paste_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                clip_id TEXT NOT NULL,
+                target_app TEXT NOT NULL,
+                pasted_at INTEGER NOT NULL,
+                FOREIGN KEY(clip_id) REFERENCES clips(id) ON DELETE CASCADE
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS clips_fts USING fts5(
@@ -159,7 +175,9 @@ impl DatabaseManager {
 
     pub fn delete_clip(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM clips WHERE id = ?1", params![id])?;
+        let _ = conn.execute("DELETE FROM paste_logs WHERE clip_id = ?1", params![id]);
+        let _ = conn.execute("DELETE FROM clips_fts WHERE id = ?1", params![id]);
+        let _ = conn.execute("DELETE FROM clips WHERE id = ?1", params![id]);
         Ok(())
     }
 
@@ -185,6 +203,48 @@ impl DatabaseManager {
             params![id],
         )?;
         Ok(())
+    }
+
+    pub fn log_paste(&self, clip_id: &str, target_app: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        conn.execute(
+            "INSERT INTO paste_logs (clip_id, target_app, pasted_at) VALUES (?1, ?2, ?3)",
+            params![clip_id, target_app, now],
+        )?;
+
+        conn.execute(
+            "UPDATE clips SET paste_count = paste_count + 1 WHERE id = ?1",
+            params![clip_id],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_paste_history(&self, clip_id: &str) -> Result<Vec<PasteLogItem>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, clip_id, target_app, pasted_at FROM paste_logs WHERE clip_id = ?1 ORDER BY pasted_at DESC LIMIT 50",
+        )?;
+
+        let iter = stmt.query_map(params![clip_id], |row| {
+            Ok(PasteLogItem {
+                id: row.get(0)?,
+                clip_id: row.get(1)?,
+                target_app: row.get(2)?,
+                pasted_at: row.get(3)?,
+            })
+        })?;
+
+        let mut items = Vec::new();
+        for item in iter {
+            items.push(item?);
+        }
+        Ok(items)
     }
 }
 

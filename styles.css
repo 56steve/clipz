@@ -34,30 +34,37 @@
   user-select: none;
 }
 
+html, body {
+  background: transparent !important;
+  background-color: transparent !important;
+  margin: 0;
+  padding: 0;
+}
+
 body {
   font-family: var(--font-sans);
-  background: transparent;
   color: var(--text-main);
   overflow: hidden;
-  height: 100vh;
+  height: 100%;
+  width: 100%;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 0px;
+  padding: 0;
+  margin: 0;
 }
 
 /* Notch Shell Floating Top-Center Container */
 .notch-shell {
-  width: 95%;
-  max-width: 660px;
-  margin: 0 auto;
-  background: var(--bg-dark);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid var(--border-glass);
+  width: 100%;
+  max-width: 700px;
+  height: 100%;
+  margin: 0;
+  background: #0d111a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-top: none;
-  border-radius: 0 0 var(--radius-notch) var(--radius-notch);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 20px var(--accent-glow);
+  border-radius: 0 0 14px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   transition: var(--transition-dynamic);
   overflow: hidden;
   display: flex;
@@ -67,6 +74,12 @@ body {
 /* Collapsed Pill State */
 .notch-shell.collapsed {
   max-height: 48px;
+  height: 48px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.notch-shell.collapsed .notch-body {
+  display: none !important;
 }
 
 .notch-shell.expanded {
