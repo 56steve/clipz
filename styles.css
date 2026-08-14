@@ -34,6 +34,25 @@
   user-select: none;
 }
 
+/* Global Sleek 4px Dark Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
 html, body {
   background: transparent !important;
   background-color: transparent !important;
@@ -458,6 +477,26 @@ body {
   line-height: 1.45;
   font-size: 12.5px;
   max-height: 240px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.clip-main-text::-webkit-scrollbar {
+  width: 4px;
+}
+
+.clip-main-text::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.clip-main-text::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+}
+
+.clip-main-text::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .clip-main-text.code-font {
