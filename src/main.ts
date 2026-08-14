@@ -249,7 +249,9 @@ class ClipzApp {
 
   private renderClips() {
     const filtered = this.getFilteredClips();
-    this.clipCount.textContent = `${this.clips.length} items stored`;
+    if (this.clipCount) {
+      this.clipCount.textContent = `${this.clips.length} items stored`;
+    }
 
     if (filtered.length === 0) {
       this.emptyState.style.display = 'flex';
