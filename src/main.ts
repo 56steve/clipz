@@ -395,7 +395,21 @@ class ClipzApp {
         if (clip && clip.category === 'image') {
           this.openLightbox(clip.content);
         } else if (clip) {
-          this.copyClip(clip, true);
+          const isExpanded = card.classList.toggle('expanded-text');
+          const mainTextEl = card.querySelector('.clip-main-text');
+          if (mainTextEl) {
+            if (isExpanded) {
+              if (clip.is_sensitive) {
+                mainTextEl.innerHTML = `<span class="sensitive-text">🔒 ${this.escapeHTML(clip.content)}</span>`;
+              } else if (clip.category === 'link') {
+                mainTextEl.innerHTML = `<span class="link-text">${this.escapeHTML(clip.content)}</span>`;
+              } else {
+                mainTextEl.innerHTML = this.escapeHTML(clip.content);
+              }
+            } else {
+              mainTextEl.innerHTML = this.renderClipPreviewText(clip);
+            }
+          }
         }
       });
     });
