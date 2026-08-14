@@ -244,6 +244,7 @@ class ClipzApp {
 
   private getFilteredClips(): ClipItem[] {
     if (this.currentFilter === 'all') return this.clips;
+    if (this.currentFilter === 'sensitive') return this.clips.filter((c) => c.is_sensitive || c.category === 'sensitive');
     return this.clips.filter((c) => c.category === this.currentFilter);
   }
 
@@ -285,17 +286,20 @@ class ClipzApp {
   }
 
   private renderClipPreviewText(clip: ClipItem): string {
+    const rawContent = clip.content || '';
+    const singleLine = rawContent.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+
     if (clip.is_sensitive) {
-      const previewText = clip.content.length > 25 ? clip.content.slice(0, 25) + '...' : clip.content;
-      return `<span class="sensitive-text">•••••••••••• ${this.escapeHTML(previewText || 'API key')}</span>`;
+      const truncated = singleLine.length > 30 ? singleLine.slice(0, 30) + '...' : singleLine;
+      return `<span class="sensitive-text">•••••••••••• ${this.escapeHTML(truncated || 'API key')}</span>`;
     }
     if (clip.category === 'image') {
       return `<span>Image Clip</span>`;
     }
     if (clip.category === 'link') {
-      return `<span class="link-text">${this.escapeHTML(clip.content)}</span>`;
+      return `<span class="link-text">${this.escapeHTML(singleLine)}</span>`;
     }
-    return this.escapeHTML(clip.content);
+    return this.escapeHTML(singleLine || '(empty clip)');
   }
 
   private createClipCardHTML(clip: ClipItem, index: number): string {
