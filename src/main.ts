@@ -13,6 +13,13 @@ interface ClipItem {
   paste_count: number;
 }
 
+interface PasteLogItem {
+  id: number;
+  clip_id: string;
+  target_app: string;
+  pasted_at: number;
+}
+
 type bool = boolean;
 
 class ClipzApp {
@@ -23,14 +30,29 @@ class ClipzApp {
   private searchInput: HTMLInputElement;
   private clipsContainer: HTMLElement;
   private emptyState: HTMLElement;
-  private clipCount: HTMLElement;
+  private clipCount: HTMLElement | null;
   private filterBtns: NodeListOf<HTMLButtonElement>;
+  private historyModal: HTMLElement;
+  private historyList: HTMLElement;
+  private closeModalBtn: HTMLElement;
+
+  private deleteModal: HTMLElement;
+  private deleteClipPreview: HTMLElement;
+  private closeDeleteModalBtn: HTMLElement;
+  private cancelDeleteBtn: HTMLElement;
+  private confirmDeleteBtn: HTMLElement;
+
+  private imageLightbox: HTMLElement;
+  private lightboxImg: HTMLImageElement;
+  private closeLightboxBtn: HTMLElement;
 
   private clips: ClipItem[] = [];
   private currentFilter: string = 'all';
   private searchDebounceTimer: any = null;
+  private hoverCollapseTimer: any = null;
   private isExpanded: boolean = false;
   private selectedIndex: number = -1;
+  private pendingDeleteId: string | null = null;
 
   constructor() {
     this.notchShell = document.getElementById('notch-shell')!;
@@ -40,8 +62,21 @@ class ClipzApp {
     this.searchInput = document.getElementById('search-input') as HTMLInputElement;
     this.clipsContainer = document.getElementById('clips-container')!;
     this.emptyState = document.getElementById('empty-state')!;
-    this.clipCount = document.getElementById('clip-count')!;
+    this.clipCount = document.getElementById('clip-count');
     this.filterBtns = document.querySelectorAll('.filter-btn');
+    this.historyModal = document.getElementById('history-modal')!;
+    this.historyList = document.getElementById('history-list')!;
+    this.closeModalBtn = document.getElementById('close-modal-btn')!;
+
+    this.deleteModal = document.getElementById('delete-modal')!;
+    this.deleteClipPreview = document.getElementById('delete-clip-preview')!;
+    this.closeDeleteModalBtn = document.getElementById('close-delete-modal-btn')!;
+    this.cancelDeleteBtn = document.getElementById('cancel-delete-btn')!;
+    this.confirmDeleteBtn = document.getElementById('confirm-delete-btn')!;
+
+    this.imageLightbox = document.getElementById('image-lightbox')!;
+    this.lightboxImg = document.getElementById('lightbox-img') as HTMLImageElement;
+    this.closeLightboxBtn = document.getElementById('close-lightbox-btn')!;
 
     this.initEventListeners();
     this.loadClips();
@@ -49,23 +84,26 @@ class ClipzApp {
   }
 
   private initEventListeners() {
-    // Header click toggles expand/collapse
     this.notchHeader.addEventListener('click', () => {
       this.toggleExpand();
     });
 
-    // Auto expand on hover over top notch header
+    // Hover to fall down drawer smoothly
     this.notchShell.addEventListener('mouseenter', () => {
+      clearTimeout(this.hoverCollapseTimer);
       if (!this.isExpanded) {
         this.expandNotch();
       }
     });
 
-    // Collapse when mouse leaves notch container
+    // Retract notch smoothly when cursor leaves the Clipz window
     this.notchShell.addEventListener('mouseleave', () => {
-      if (this.isExpanded && !this.searchInput.value.trim()) {
-        this.collapseNotch();
-      }
+      clearTimeout(this.hoverCollapseTimer);
+      this.hoverCollapseTimer = setTimeout(() => {
+        if (this.isExpanded && this.historyModal.classList.contains('hidden')) {
+          this.collapseNotch();
+        }
+      }, 300);
     });
 
     // Search input handler with FTS5 debounce
@@ -115,11 +153,21 @@ class ClipzApp {
         this.clips.unshift(item);
         this.updatePillPreview(item);
         this.renderClips();
+
+        // 1.2s Copy Pulse Feedback Badge
+        this.notchShell.classList.add('copy-pulse');
+        setTimeout(() => this.notchShell.classList.remove('copy-pulse'), 1200);
+      });
+
+      // Listen for global Alt + C hotkey
+      await listen('toggle-notch-hotkey', () => {
+        this.toggleExpand();
       });
 
       // Listen for paste tracking events
       await listen<{ target_app: string }>('paste-event', (event) => {
         this.streamText.textContent = `Pasted into ${event.payload.target_app}`;
+        this.loadClips();
         setTimeout(() => {
           if (this.clips[0]) {
             this.updatePillPreview(this.clips[0]);
@@ -158,6 +206,8 @@ class ClipzApp {
   private updatePillPreview(item: ClipItem) {
     if (item.is_sensitive) {
       this.streamText.textContent = `🔒 Sensitive data captured from ${item.source_app}`;
+    } else if (item.category === 'image') {
+      this.streamText.textContent = `🖼️ Image captured from ${item.source_app}`;
     } else {
       const preview = item.content.length > 40 ? item.content.slice(0, 40) + '...' : item.content;
       this.streamText.textContent = `${item.source_app}: "${preview}"`;
@@ -175,7 +225,7 @@ class ClipzApp {
   private async expandNotch() {
     this.isExpanded = true;
     try {
-      await getCurrentWindow().setSize(new LogicalSize(700, 500));
+      await invoke('expand_window');
     } catch (_) {}
     this.notchShell.classList.remove('collapsed');
     this.notchShell.classList.add('expanded');
@@ -188,18 +238,21 @@ class ClipzApp {
     this.notchShell.classList.add('collapsed');
     this.searchInput.blur();
     try {
-      await getCurrentWindow().setSize(new LogicalSize(700, 48));
+      await invoke('collapse_window');
     } catch (_) {}
   }
 
   private getFilteredClips(): ClipItem[] {
     if (this.currentFilter === 'all') return this.clips;
+    if (this.currentFilter === 'sensitive') return this.clips.filter((c) => c.is_sensitive || c.category === 'sensitive');
     return this.clips.filter((c) => c.category === this.currentFilter);
   }
 
   private renderClips() {
     const filtered = this.getFilteredClips();
-    this.clipCount.textContent = `${this.clips.length} items stored`;
+    if (this.clipCount) {
+      this.clipCount.textContent = `${this.clips.length} items stored`;
+    }
 
     if (filtered.length === 0) {
       this.emptyState.style.display = 'flex';
@@ -215,46 +268,78 @@ class ClipzApp {
     this.bindCardEvents();
   }
 
+  private getCategoryIconHTML(clip: ClipItem): string {
+    if (clip.is_sensitive) {
+      return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+    }
+    if (clip.category === 'image') {
+      const src = clip.content.startsWith('data:image/') ? clip.content : `data:image/png;base64,${clip.content}`;
+      return `<img src="${src}" class="clip-thumb-img" alt="Thumbnail" />`;
+    }
+    switch (clip.category) {
+      case 'code':
+        return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
+      case 'link':
+        return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+      case 'text':
+      default:
+        return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="9" y1="20" x2="15" y2="20"/></svg>`;
+    }
+  }
+
+  private renderClipPreviewText(clip: ClipItem): string {
+    const rawContent = clip.content || '';
+    const singleLine = rawContent.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+    if (clip.is_sensitive) {
+      const truncated = singleLine.length > 30 ? singleLine.slice(0, 30) + '...' : singleLine;
+      return `<span class="sensitive-text">•••••••••••• ${this.escapeHTML(truncated || 'API key')}</span>`;
+    }
+    if (clip.category === 'image') {
+      return `<span class="image-text">Image Clip</span>`;
+    }
+    if (clip.category === 'link') {
+      return `<span class="link-text">${this.escapeHTML(singleLine)}</span>`;
+    }
+    return this.escapeHTML(singleLine || '(empty clip)');
+  }
+
   private createClipCardHTML(clip: ClipItem, index: number): string {
     const isSelected = index === this.selectedIndex;
     const timeAgo = this.formatTimeAgo(clip.created_at);
+    const iconHTML = this.getCategoryIconHTML(clip);
+    const contentHTML = this.renderClipPreviewText(clip);
 
-    if (clip.is_sensitive) {
-      return `
-        <div class="clip-card sensitive-card ${clip.is_pinned ? 'pinned' : ''} ${isSelected ? 'selected' : ''}" data-id="${clip.id}">
-          <div class="clip-card-header">
-            <div class="app-meta">
-              <span class="app-badge">${this.escapeHTML(clip.source_app)}</span>
-              <span>${timeAgo}</span>
-            </div>
-            <div class="card-actions">
-              <button class="action-btn pin-btn" title="Pin Clip">${clip.is_pinned ? '📌' : '📍'}</button>
-              <button class="action-btn delete-btn" title="Delete Clip">🗑️</button>
-            </div>
-          </div>
-          <div class="sensitive-masked">
-            <span>🔒 Password Protected</span>
-            <button class="reveal-btn" data-id="${clip.id}">Reveal (10s)</button>
-          </div>
-        </div>
-      `;
-    }
-
-    const isCode = clip.category === 'code';
     return `
       <div class="clip-card ${clip.is_pinned ? 'pinned' : ''} ${isSelected ? 'selected' : ''}" data-id="${clip.id}">
-        <div class="clip-card-header">
-          <div class="app-meta">
-            <span class="app-badge">${this.escapeHTML(clip.source_app)}</span>
-            <span>${timeAgo}</span>
-            ${clip.paste_count > 0 ? `<span>• Pasted ${clip.paste_count}x</span>` : ''}
+        <div class="clip-icon">
+          ${iconHTML}
+        </div>
+        <div class="clip-body">
+          <div class="clip-main-text ${clip.category === 'code' ? 'code-font' : ''}">
+            ${contentHTML}
           </div>
-          <div class="card-actions">
-            <button class="action-btn pin-btn" title="Pin Clip">${clip.is_pinned ? '📌' : '📍'}</button>
-            <button class="action-btn delete-btn" title="Delete Clip">🗑️</button>
+          <div class="clip-sub-meta">
+            <span>${this.escapeHTML(clip.source_app)}</span>
+            <span class="meta-dot">•</span>
+            <span>${timeAgo}</span>
+            ${clip.paste_count > 0 ? `<span class="meta-dot">•</span><span>Pasted ${clip.paste_count}x</span>` : ''}
           </div>
         </div>
-        <div class="clip-content ${isCode ? 'code-font' : ''}">${this.escapeHTML(clip.content)}</div>
+        <div class="clip-right-actions">
+          ${isSelected ? '<span class="enter-badge" title="Press Enter to Copy">↵</span>' : ''}
+          <div class="action-btn-group">
+            <button class="action-btn info-btn" title="View Paste History">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </button>
+            <button class="action-btn copy-btn" title="Copy to Clipboard">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <button class="action-btn delete-btn" title="Delete Clip">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -265,35 +350,175 @@ class ClipzApp {
       const id = card.getAttribute('data-id')!;
       const clip = this.clips.find((c) => c.id === id);
 
+      const infoBtn = card.querySelector('.info-btn');
+      const copyBtn = card.querySelector('.copy-btn');
+      const deleteBtn = card.querySelector('.delete-btn');
+      const revealBtn = card.querySelector('.reveal-btn');
+
+      if (infoBtn) {
+        infoBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          this.showPasteHistory(id);
+        });
+      }
+
+      if (copyBtn) {
+        copyBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          if (clip) this.copyClip(clip, false);
+        });
+      }
+
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          this.promptDelete(id);
+        });
+      }
+
+      if (revealBtn) {
+        revealBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          this.revealSensitive(id, revealBtn as HTMLButtonElement);
+        });
+      }
+
       card.addEventListener('click', (e) => {
         const target = e.target as HTMLElement;
-        if (target.classList.contains('pin-btn')) {
-          e.stopPropagation();
-          this.togglePin(id);
-        } else if (target.classList.contains('delete-btn')) {
-          e.stopPropagation();
-          this.deleteClip(id);
-        } else if (target.classList.contains('reveal-btn')) {
-          e.stopPropagation();
-          this.revealSensitive(id, target as HTMLButtonElement);
+        if (target.closest('.action-btn') || target.closest('.reveal-btn')) {
+          return;
+        }
+        if (clip && clip.category === 'image') {
+          this.openLightbox(clip.content);
         } else if (clip) {
-          this.copyClip(clip);
+          const isExpanded = card.classList.toggle('expanded-text');
+          const mainTextEl = card.querySelector('.clip-main-text');
+          if (mainTextEl) {
+            if (isExpanded) {
+              if (clip.is_sensitive) {
+                mainTextEl.innerHTML = `<span class="sensitive-text">🔒 ${this.escapeHTML(clip.content)}</span>`;
+              } else if (clip.category === 'link') {
+                mainTextEl.innerHTML = `<span class="link-text">${this.escapeHTML(clip.content)}</span>`;
+              } else {
+                mainTextEl.innerHTML = this.escapeHTML(clip.content);
+              }
+            } else {
+              mainTextEl.innerHTML = this.renderClipPreviewText(clip);
+            }
+          }
         }
       });
     });
+
+    this.closeModalBtn.onclick = () => {
+      this.historyModal.classList.add('hidden');
+    };
+
+    this.historyModal.onclick = (e) => {
+      if (e.target === this.historyModal) {
+        this.historyModal.classList.add('hidden');
+      }
+    };
+
+    this.closeDeleteModalBtn.onclick = () => {
+      this.deleteModal.classList.add('hidden');
+    };
+
+    this.cancelDeleteBtn.onclick = () => {
+      this.deleteModal.classList.add('hidden');
+    };
+
+    this.confirmDeleteBtn.onclick = async () => {
+      if (this.pendingDeleteId) {
+        await this.deleteClip(this.pendingDeleteId);
+        this.deleteModal.classList.add('hidden');
+        this.pendingDeleteId = null;
+      }
+    };
+
+    this.deleteModal.onclick = (e) => {
+      if (e.target === this.deleteModal) {
+        this.deleteModal.classList.add('hidden');
+      }
+    };
+
+    this.closeLightboxBtn.onclick = () => {
+      this.imageLightbox.classList.add('hidden');
+    };
+
+    this.imageLightbox.onclick = (e) => {
+      if (e.target === this.imageLightbox) {
+        this.imageLightbox.classList.add('hidden');
+      }
+    };
   }
 
-  private async copyClip(clip: ClipItem) {
+  private openLightbox(src: string) {
+    this.lightboxImg.src = src;
+    this.imageLightbox.classList.remove('hidden');
+  }
+
+  private promptDelete(id: string) {
+    const clip = this.clips.find((c) => c.id === id);
+    if (!clip) return;
+
+    this.pendingDeleteId = id;
+    if (clip.category === 'image') {
+      this.deleteClipPreview.innerHTML = `<img src="${clip.content}" style="max-height:65px; border-radius:6px;" alt="Clip Image"/>`;
+    } else if (clip.is_sensitive) {
+      this.deleteClipPreview.textContent = '🔒 Password Protected Clip';
+    } else {
+      this.deleteClipPreview.textContent = clip.content.length > 100 ? clip.content.slice(0, 100) + '...' : clip.content;
+    }
+    this.deleteModal.classList.remove('hidden');
+  }
+
+  private async copyClip(clip: ClipItem, autoPaste: boolean = false) {
     try {
       await invoke('copy_to_clipboard', {
         id: clip.id,
         content: clip.content,
+        auto_paste: autoPaste,
       });
-      this.streamText.textContent = `Copied to clipboard!`;
+      this.streamText.textContent = autoPaste ? `Pasted into active app!` : `Copied to clipboard!`;
       setTimeout(() => this.updatePillPreview(clip), 2000);
-      this.collapseNotch();
     } catch (err) {
       console.error('Failed to copy clip:', err);
+    }
+  }
+
+  private async showPasteHistory(id: string) {
+    try {
+      const logs = await invoke<PasteLogItem[]>('get_paste_history', { id });
+      if (!logs || logs.length === 0) {
+        this.historyList.innerHTML = `
+          <div class="empty-history">
+            <p>No paste events recorded yet for this clip.</p>
+            <span>Paste using Ctrl+V or click to auto-paste.</span>
+          </div>
+        `;
+      } else {
+        this.historyList.innerHTML = logs
+          .map(
+            (log) => `
+            <div class="history-item">
+              <div class="history-app">
+                <span class="app-badge">${this.escapeHTML(log.target_app)}</span>
+                <span class="history-action">Pasted into application</span>
+              </div>
+              <span class="history-time">${this.formatTimeAgo(log.pasted_at)}</span>
+            </div>
+          `
+          )
+          .join('');
+      }
+      this.historyModal.classList.remove('hidden');
+    } catch (err) {
+      console.error('Failed to fetch paste history:', err);
     }
   }
 
@@ -309,12 +534,16 @@ class ClipzApp {
   }
 
   private async deleteClip(id: string) {
+    // Optimistically update UI state immediately
+    this.clips = this.clips.filter((c) => c.id !== id);
+    this.renderClips();
+    this.streamText.textContent = `Clip deleted permanently.`;
+
     try {
       await invoke('delete_clip', { id });
-      this.clips = this.clips.filter((c) => c.id !== id);
-      this.renderClips();
     } catch (err) {
-      console.error('Failed to delete clip:', err);
+      console.error('Failed to delete clip from DB:', err);
+      await this.loadClips();
     }
   }
 
