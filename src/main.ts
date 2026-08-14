@@ -268,17 +268,19 @@ class ClipzApp {
     this.bindCardEvents();
   }
 
-  private getCategoryIconHTML(category: string, isSensitive: boolean): string {
-    if (isSensitive) {
+  private getCategoryIconHTML(clip: ClipItem): string {
+    if (clip.is_sensitive) {
       return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
     }
-    switch (category) {
+    if (clip.category === 'image') {
+      const src = clip.content.startsWith('data:image/') ? clip.content : `data:image/png;base64,${clip.content}`;
+      return `<img src="${src}" class="clip-thumb-img" alt="Thumbnail" />`;
+    }
+    switch (clip.category) {
       case 'code':
         return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
       case 'link':
         return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
-      case 'image':
-        return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
       case 'text':
       default:
         return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="12" y1="4" x2="12" y2="20"/><line x1="9" y1="20" x2="15" y2="20"/></svg>`;
@@ -294,7 +296,7 @@ class ClipzApp {
       return `<span class="sensitive-text">•••••••••••• ${this.escapeHTML(truncated || 'API key')}</span>`;
     }
     if (clip.category === 'image') {
-      return `<span>Image Clip</span>`;
+      return `<span class="image-text">Image Clip</span>`;
     }
     if (clip.category === 'link') {
       return `<span class="link-text">${this.escapeHTML(singleLine)}</span>`;
@@ -305,7 +307,7 @@ class ClipzApp {
   private createClipCardHTML(clip: ClipItem, index: number): string {
     const isSelected = index === this.selectedIndex;
     const timeAgo = this.formatTimeAgo(clip.created_at);
-    const iconHTML = this.getCategoryIconHTML(clip.category, clip.is_sensitive);
+    const iconHTML = this.getCategoryIconHTML(clip);
     const contentHTML = this.renderClipPreviewText(clip);
 
     return `

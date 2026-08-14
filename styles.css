@@ -395,14 +395,29 @@ body {
   border-radius: 2px;
 }
 
-/* Left Category Icon */
+/* Left Category Icon & Image Thumbnail */
 .clip-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
+}
+
+.clip-thumb-img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #09090c;
+  display: block;
+}
+
+.clip-main-text .image-text {
+  color: #c084fc;
+  font-weight: 500;
 }
 
 /* Clip Main Body */
