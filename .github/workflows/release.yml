@@ -2,6 +2,8 @@ name: Release Clipz (.exe)
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
