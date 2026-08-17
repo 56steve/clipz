@@ -140,18 +140,65 @@ impl DatabaseManager {
 
     pub fn search_clips(&self, query: &str) -> Result<Vec<ClipItem>> {
         let conn = self.conn.lock().unwrap();
-        let formatted_query = format!("*{}*", query.replace('"', "\"\""));
+        let clean_query = query.trim();
+        if clean_query.is_empty() {
+            drop(conn);
+            return self.get_recent_clips(50);
+        }
 
-        let mut stmt = conn.prepare(
+        // 1. Try SQLite FTS5 Full-Text Match
+        let sanitized_fts = clean_query.replace('"', "");
+        let fts_query = format!("\"{}\"*", sanitized_fts);
+
+        let fts_res = conn.prepare(
             "SELECT c.id, c.content, c.source_app, c.category, c.is_sensitive, c.is_pinned, c.created_at, c.paste_count
              FROM clips c
              JOIN clips_fts fts ON c.id = fts.id
              WHERE clips_fts MATCH ?1
              ORDER BY c.is_pinned DESC, c.created_at DESC
              LIMIT 50",
+        );
+
+        if let Ok(mut stmt) = fts_res {
+            let clip_iter = stmt.query_map(params![fts_query], |row| {
+                let sensitive_int: i32 = row.get(4)?;
+                let pinned_int: i32 = row.get(5)?;
+                Ok(ClipItem {
+                    id: row.get(0)?,
+                    content: row.get(1)?,
+                    source_app: row.get(2)?,
+                    category: row.get(3)?,
+                    is_sensitive: sensitive_int != 0,
+                    is_pinned: pinned_int != 0,
+                    created_at: row.get(6)?,
+                    paste_count: row.get(7)?,
+                })
+            });
+
+            if let Ok(iter) = clip_iter {
+                let mut items = Vec::new();
+                for item in iter {
+                    if let Ok(clip) = item {
+                        items.push(clip);
+                    }
+                }
+                if !items.is_empty() {
+                    return Ok(items);
+                }
+            }
+        }
+
+        // 2. Fallback Substring Search (handles URLs, symbols, code snippets, etc.)
+        let like_param = format!("%{}%", clean_query);
+        let mut fallback_stmt = conn.prepare(
+            "SELECT id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count
+             FROM clips
+             WHERE content LIKE ?1 OR source_app LIKE ?1
+             ORDER BY is_pinned DESC, created_at DESC
+             LIMIT 50",
         )?;
 
-        let clip_iter = stmt.query_map(params![formatted_query], |row| {
+        let clip_iter = fallback_stmt.query_map(params![like_param], |row| {
             let sensitive_int: i32 = row.get(4)?;
             let pinned_int: i32 = row.get(5)?;
             Ok(ClipItem {
