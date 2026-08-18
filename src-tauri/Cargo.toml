@@ -29,3 +29,7 @@ windows = { version = "0.58", features = [
     "Win32_System_Memory",
     "Win32_System_LibraryLoader"
 ] }
+
+[target.'cfg(not(windows))'.dependencies]
+arboard = "3.4"
+

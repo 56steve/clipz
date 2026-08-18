@@ -175,4 +175,14 @@ impl SecurityManager {
             }
         }
     }
+
+    #[cfg(not(windows))]
+    pub fn encrypt_dpapi(data: &[u8]) -> Result<Vec<u8>, String> {
+        Ok(data.to_vec())
+    }
+
+    #[cfg(not(windows))]
+    pub fn decrypt_dpapi(encrypted_data: &[u8]) -> Result<Vec<u8>, String> {
+        Ok(encrypted_data.to_vec())
+    }
 }

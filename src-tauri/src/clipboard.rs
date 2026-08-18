@@ -107,7 +107,26 @@ impl ClipboardListener {
                         let _ = RemoveClipboardFormatListener(hwnd);
                         break;
                     }
-                    DispatchMessageW(&msg);
+                }
+            }
+
+            #[cfg(not(windows))]
+            {
+                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                    let mut last_captured_text = String::new();
+                    loop {
+                        thread::sleep(std::time::Duration::from_millis(500));
+                        if let Ok(text) = clipboard.get_text() {
+                            if !text.is_empty() && text != last_captured_text {
+                                last_captured_text = text.clone();
+                                let _ = tx.send(RawClipEvent {
+                                    content: text,
+                                    source_app: "macOS Desktop".to_string(),
+                                    is_image: false,
+                                });
+                            }
+                        }
+                    }
                 }
             }
         });
