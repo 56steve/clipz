@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "cmd /c \"set PATH=C:\\Users\\ACER\\.cargo\\bin;%PATH% && tauri\""
+    "tauri": "tauri"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
