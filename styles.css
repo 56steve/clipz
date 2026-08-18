@@ -58,12 +58,21 @@ html, body {
   background-color: transparent !important;
   margin: 0;
   padding: 0;
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html::-webkit-scrollbar, body::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 body {
   font-family: var(--font-sans);
   color: var(--text-main);
-  overflow: hidden;
+  overflow: hidden !important;
   height: 100%;
   width: 100%;
   display: flex;
@@ -83,19 +92,26 @@ body {
   background: #000000;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 22px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.95);
+  box-shadow: none;
   transition: var(--transition-dynamic);
-  overflow: hidden;
+  overflow: hidden !important;
   display: flex;
   flex-direction: column;
 }
 
-/* Collapsed 44px Pill Capsule State */
+/* Collapsed 32px Ultra-Slim Pill Capsule State */
 .notch-shell.collapsed {
-  max-height: 44px;
-  height: 44px;
-  border-radius: 22px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.85);
+  max-height: 32px !important;
+  height: 32px !important;
+  border-radius: 16px;
+  box-shadow: none;
+  opacity: 0.45;
+  backdrop-filter: blur(8px);
+  overflow: hidden !important;
+}
+
+.notch-shell.collapsed:hover {
+  opacity: 1;
 }
 
 .notch-shell.copy-pulse {
@@ -104,55 +120,74 @@ body {
 }
 
 @keyframes pulse-copy {
-  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.8); }
-  70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  0% { border-color: var(--accent-primary); }
+  50% { border-color: rgba(99, 102, 241, 0.5); }
+  100% { border-color: rgba(255, 255, 255, 0.08); }
 }
 
 .notch-shell.collapsed .notch-body {
   display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Fail-safe: Prevent drawer body from ever rendering if viewport height is <= 100px */
+@media (max-height: 100px) {
+  .notch-body {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
 }
 
 .notch-shell.expanded {
   max-height: 480px;
   height: 480px;
   border-radius: 24px;
+  opacity: 1;
 }
 
 /* Notch Header Bar */
 .notch-header {
-  height: 44px;
-  min-height: 44px;
+  height: 32px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 14px;
   cursor: pointer;
   border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition: border-color 0.2s ease, background 0.2s ease, height 0.2s ease;
 }
 
 .notch-header:hover {
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .notch-shell.expanded .notch-header {
+  height: 40px;
+  min-height: 40px;
   border-bottom-color: var(--border-glass);
 }
 
 .pill-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 0 0 120px;
+  gap: 6px;
+  flex: 0 0 90px;
 }
 
 .notch-logo-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   background: var(--accent-primary);
   border-radius: 50%;
-  box-shadow: 0 0 8px var(--accent-primary);
   animation: pulse-dot 2s infinite;
 }
 
@@ -163,8 +198,8 @@ body {
 
 .notch-title {
   font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 1.2px;
+  font-size: 11px;
+  letter-spacing: 1px;
   color: var(--text-main);
 }
 
@@ -174,12 +209,12 @@ body {
   justify-content: center;
   text-align: center;
   flex: 1;
-  margin: 0 12px;
+  margin: 0 8px;
   overflow: hidden;
 }
 
 .stream-text {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -192,7 +227,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex: 0 0 120px;
+  flex: 0 0 90px;
 }
 
 .icon-btn {
@@ -277,7 +312,6 @@ body {
 
 #search-input:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .shortcut-badge {
@@ -623,8 +657,10 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(8px);
+  border-radius: 24px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(12px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -641,7 +677,7 @@ body {
 .modal-content {
   background: #0d0d11;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
+  border-radius: 20px;
   width: 100%;
   max-width: 480px;
   max-height: 380px;
@@ -775,10 +811,16 @@ body {
 
 /* Image Lightbox */
 .lightbox-overlay {
-  position: fixed;
-  inset: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 9999;
-  background: rgba(0, 0, 0, 0.92);
+  border-radius: 24px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -795,6 +837,10 @@ body {
   position: relative;
   max-width: 90%;
   max-height: 85%;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95);
 }
 
 .lightbox-img {
@@ -803,28 +849,27 @@ body {
   max-width: 90vw;
   max-height: 85vh;
   object-fit: contain;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+  border-radius: 20px;
   display: block;
 }
 
 .lightbox-close {
   position: absolute;
-  top: -12px;
-  right: -12px;
-  background: rgba(0, 0, 0, 0.7);
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
-  font-size: 20px;
-  width: 32px;
-  height: 32px;
+  font-size: 18px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.2s ease;
-  z-index: 1;
+  z-index: 10;
 }
 
 .lightbox-close:hover {

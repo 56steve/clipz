@@ -50,6 +50,7 @@ class ClipzApp {
   private currentFilter: string = 'all';
   private searchDebounceTimer: any = null;
   private hoverCollapseTimer: any = null;
+  private hoverExpandTimer: any = null;
   private isExpanded: boolean = false;
   private selectedIndex: number = -1;
   private pendingDeleteId: string | null = null;
@@ -88,16 +89,20 @@ class ClipzApp {
       this.toggleExpand();
     });
 
-    // Hover to fall down drawer smoothly
+    // Smart Hover Dwell: 180ms delay to prevent accidental expand when moving mouse across top bar
     this.notchShell.addEventListener('mouseenter', () => {
       clearTimeout(this.hoverCollapseTimer);
-      if (!this.isExpanded) {
-        this.expandNotch();
-      }
+      clearTimeout(this.hoverExpandTimer);
+      this.hoverExpandTimer = setTimeout(() => {
+        if (!this.isExpanded) {
+          this.expandNotch();
+        }
+      }, 180);
     });
 
     // Retract notch smoothly when cursor leaves the Clipz window
     this.notchShell.addEventListener('mouseleave', () => {
+      clearTimeout(this.hoverExpandTimer);
       clearTimeout(this.hoverCollapseTimer);
       this.hoverCollapseTimer = setTimeout(() => {
         if (this.isExpanded && this.historyModal.classList.contains('hidden')) {
@@ -207,7 +212,12 @@ class ClipzApp {
     if (item.is_sensitive) {
       this.streamText.textContent = `🔒 Sensitive data captured from ${item.source_app}`;
     } else if (item.category === 'image') {
-      this.streamText.textContent = `🖼️ Image captured from ${item.source_app}`;
+      const cleanApp = item.source_app && item.source_app !== 'Unknown App'
+        ? item.source_app.replace(/\.exe$/i, '')
+        : 'Screenshot';
+      const date = new Date(item.created_at * 1000);
+      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      this.streamText.textContent = `🖼️ Screenshot captured from ${cleanApp} (${timeStr})`;
     } else {
       const preview = item.content.length > 40 ? item.content.slice(0, 40) + '...' : item.content;
       this.streamText.textContent = `${item.source_app}: "${preview}"`;
@@ -223,16 +233,22 @@ class ClipzApp {
   }
 
   private async expandNotch() {
+    if (this.isExpanded) return;
     this.isExpanded = true;
     try {
       await invoke('expand_window');
     } catch (_) {}
-    this.notchShell.classList.remove('collapsed');
-    this.notchShell.classList.add('expanded');
-    setTimeout(() => this.searchInput.focus(), 100);
+    setTimeout(() => {
+      if (this.isExpanded) {
+        this.notchShell.classList.remove('collapsed');
+        this.notchShell.classList.add('expanded');
+        this.searchInput.focus();
+      }
+    }, 30);
   }
 
   private async collapseNotch() {
+    if (!this.isExpanded) return;
     this.isExpanded = false;
     this.notchShell.classList.remove('expanded');
     this.notchShell.classList.add('collapsed');
@@ -296,7 +312,18 @@ class ClipzApp {
       return `<span class="sensitive-text">•••••••••••• ${this.escapeHTML(truncated || 'API key')}</span>`;
     }
     if (clip.category === 'image') {
-      return `<span class="image-text">Image Clip</span>`;
+      const cleanApp = clip.source_app && clip.source_app !== 'Unknown App'
+        ? clip.source_app.replace(/\.exe$/i, '')
+        : 'Screenshot';
+      const date = new Date(clip.created_at * 1000);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const mins = String(date.getMinutes()).padStart(2, '0');
+      const secs = String(date.getSeconds()).padStart(2, '0');
+      const imageName = `Screenshot_${cleanApp}_${year}${month}${day}_${hours}${mins}${secs}.png`;
+      return `<span class="image-text">🖼️ ${this.escapeHTML(imageName)}</span>`;
     }
     if (clip.category === 'link') {
       return `<span class="link-text">${this.escapeHTML(singleLine)}</span>`;

@@ -198,7 +198,7 @@ fn expand_window(window: tauri::Window) -> Result<(), String> {
 
 #[tauri::command]
 fn collapse_window(window: tauri::Window) -> Result<(), String> {
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(700.0, 44.0)));
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(700.0, 32.0)));
     Ok(())
 }
 

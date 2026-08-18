@@ -29,13 +29,24 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build and Publish Release Assets
-        uses: tauri-apps/tauri-action@v2
+      - name: Build Production Executable
+        run: npm run tauri build
+
+      - name: Publish GitHub Release (.exe)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 'Clipz ${{ github.ref_name }} (.exe)'
+          body: |
+            Official production release of Clipz Desktop Clipboard Notch Hub for Windows.
+            
+            ### Available Executables
+            - **`Clipz_0.1.0_x64-setup.exe`**: Standard Windows Installer
+            - **`clipz.exe`**: Standalone Portable Executable
+          files: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/clipz.exe
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: v__VERSION__
-          releaseName: 'Clipz v__VERSION__'
-          releaseBody: 'Official production release of Clipz Desktop Clipboard Notch Hub for Windows (.exe).'
-          releaseDraft: false
-          prerelease: false
