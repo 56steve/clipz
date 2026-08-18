@@ -35,7 +35,7 @@
       <section class="search-section">
         <div class="search-input-wrapper">
           <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input type="text" id="search-input" placeholder="Search clips (FTS5 powered)..." autofocus />
+          <input type="text" id="search-input" placeholder="Search..." autofocus />
           <kbd class="shortcut-badge">Esc to collapse</kbd>
         </div>
 
@@ -91,40 +91,41 @@
       </footer>
     </main>
 
-  <!-- Paste History Popup Overlay -->
-  <div id="history-modal" class="modal-overlay hidden">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3>📋 Paste History Log</h3>
-        <button id="close-modal-btn" class="icon-btn">&times;</button>
-      </div>
-      <div class="modal-body" id="history-list"></div>
-    </div>
-  </div>
-
-  <!-- Delete Confirmation Modal Overlay -->
-  <div id="delete-modal" class="modal-overlay hidden">
-    <div class="modal-content delete-modal-content">
-      <div class="modal-header">
-        <h3>🗑️ Delete Clip</h3>
-        <button id="close-delete-modal-btn" class="icon-btn">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p class="delete-warning-text">Are you sure you want to permanently delete this clip?</p>
-        <div id="delete-clip-preview" class="delete-clip-preview"></div>
-      </div>
-      <div class="modal-footer">
-        <button id="cancel-delete-btn" class="btn btn-secondary">Cancel</button>
-        <button id="confirm-delete-btn" class="btn btn-danger">Delete Permanently</button>
+    <!-- Paste History Popup Overlay -->
+    <div id="history-modal" class="modal-overlay hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>📋 Paste History Log</h3>
+          <button id="close-modal-btn" class="icon-btn">&times;</button>
+        </div>
+        <div class="modal-body" id="history-list"></div>
       </div>
     </div>
-  </div>
 
-  <!-- Image Lightbox Modal -->
-  <div id="image-lightbox" class="lightbox-overlay hidden">
-    <div class="lightbox-container">
-      <img id="lightbox-img" class="lightbox-img" alt="Full Image Preview" />
-      <button id="close-lightbox-btn" class="lightbox-close">&times;</button>
+    <!-- Delete Confirmation Modal Overlay -->
+    <div id="delete-modal" class="modal-overlay hidden">
+      <div class="modal-content delete-modal-content">
+        <div class="modal-header">
+          <h3>🗑️ Delete Clip</h3>
+          <button id="close-delete-modal-btn" class="icon-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="delete-warning-text">Are you sure you want to permanently delete this clip?</p>
+          <div id="delete-clip-preview" class="delete-clip-preview"></div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancel-delete-btn" class="btn btn-secondary">Cancel</button>
+          <button id="confirm-delete-btn" class="btn btn-danger">Delete Permanently</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Image Lightbox Modal -->
+    <div id="image-lightbox" class="lightbox-overlay hidden">
+      <div class="lightbox-container">
+        <img id="lightbox-img" class="lightbox-img" alt="Full Image Preview" />
+        <button id="close-lightbox-btn" class="lightbox-close">&times;</button>
+      </div>
     </div>
   </div>
 
