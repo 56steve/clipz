@@ -1,4 +1,4 @@
-name: Release Clipz (.exe)
+name: Release Clipz (Windows & macOS)
 
 on:
   push:
@@ -12,7 +12,14 @@ jobs:
   publish-tauri:
     permissions:
       contents: write
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-latest
+
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,22 +36,24 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build Production Executable
+      - name: Build Production Executables
         run: npm run tauri build
 
-      - name: Publish GitHub Release (.exe)
+      - name: Publish GitHub Release Assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: 'Clipz ${{ github.ref_name }} (.exe)'
+          name: 'Clipz ${{ github.ref_name }}'
           body: |
-            Official production release of Clipz Desktop Clipboard Notch Hub for Windows.
+            Official production release of Clipz Desktop Clipboard Notch Hub for Windows and macOS.
             
-            ### Available Executables
-            - **`Clipz_0.1.0_x64-setup.exe`**: Standard Windows Installer
-            - **`clipz.exe`**: Standalone Portable Executable
+            ### Downloads
+            - **Windows**: `Clipz_0.1.0_x64-setup.exe` (Installer) or `clipz.exe` (Portable)
+            - **macOS**: `Clipz_0.1.0_x64.dmg` / `Clipz.app.tar.gz`
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app.tar.gz
             src-tauri/target/release/clipz.exe
           draft: false
           prerelease: false

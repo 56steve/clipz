@@ -140,6 +140,27 @@ fn copy_to_clipboard(
         }
     }
 
+    #[cfg(not(windows))]
+    {
+        let target_text = if let Some(clip_id) = &id {
+            if let Some(sensitive_str) = state.security.get_transient(clip_id) {
+                sensitive_str
+            } else {
+                content
+            }
+        } else {
+            content
+        };
+
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            let _ = clipboard.set_text(target_text);
+            if let Some(clip_id) = &id {
+                let _ = state.db.log_paste(clip_id, "macOS Application");
+            }
+            return Ok(());
+        }
+    }
+
     Err("Could not copy to clipboard".to_string())
 }
 
