@@ -14,7 +14,7 @@ use windows::{
     Win32::System::ProcessStatus::GetModuleFileNameExW,
     Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
     Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetForegroundWindow,
+        CreateWindowExW, DefWindowProcW, GetForegroundWindow,
         GetWindowThreadProcessId, PeekMessageW, RegisterClassW, HWND_MESSAGE, MSG, PM_REMOVE,
         WM_CLIPBOARDUPDATE, WM_DESTROY, WNDCLASSW,
     },
@@ -348,5 +348,5 @@ fn get_active_app_name() -> String {
 
 #[cfg(not(windows))]
 fn get_active_app_name() -> String {
-    "Desktop".to_string()
+    crate::paste_tracker::get_active_app_name()
 }
