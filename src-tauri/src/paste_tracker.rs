@@ -151,7 +151,15 @@ pub fn simulate_paste() {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub fn simulate_paste() {
+    let _ = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to keystroke \"v\" using command down")
+        .output();
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
 pub fn simulate_paste() {}
 
 #[cfg(windows)]
@@ -193,7 +201,22 @@ pub fn get_active_app_name() -> String {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub fn get_active_app_name() -> String {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg("tell application \"System Events\" to get name of first process whose frontmost is true")
+        .output();
+    if let Ok(out) = output {
+        let app = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !app.is_empty() {
+            return app;
+        }
+    }
+    "macOS Application".to_string()
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
 pub fn get_active_app_name() -> String {
     "Desktop".to_string()
 }

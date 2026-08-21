@@ -51,6 +51,8 @@ class ClipzApp {
   private searchDebounceTimer: any = null;
   private hoverCollapseTimer: any = null;
   private hoverExpandTimer: any = null;
+  private previewTimer: any = null;
+  private currentState: 'pill' | 'preview' | 'expanded' = 'pill';
   private isExpanded: boolean = false;
   private selectedIndex: number = -1;
   private pendingDeleteId: string | null = null;
@@ -82,6 +84,64 @@ class ClipzApp {
     this.initEventListeners();
     this.loadClips();
     this.initTauriListeners();
+
+    // Show initial welcome preview banner for 4 seconds on launch so position is immediately clear
+    this.streamText.textContent = '✂️ Clipz dynamic notch active • Hover to expand';
+    this.setNotchState('preview');
+    this.previewTimer = setTimeout(() => {
+      if (this.currentState === 'preview') {
+        this.setNotchState('pill');
+      }
+    }, 4000);
+  }
+
+  private collapseWindowTimer: any = null;
+
+  private async setNotchState(state: 'pill' | 'preview' | 'expanded') {
+    this.currentState = state;
+    clearTimeout(this.previewTimer);
+    clearTimeout(this.collapseWindowTimer);
+
+    switch (state) {
+      case 'pill':
+        this.isExpanded = false;
+        this.notchShell.classList.remove('state-preview', 'state-expanded', 'expanded');
+        this.notchShell.classList.add('state-pill', 'collapsed');
+        this.searchInput.blur();
+        // Wait 380ms for CSS transition to smoothly morph back down before shrinking native OS window
+        this.collapseWindowTimer = setTimeout(async () => {
+          if (this.currentState === 'pill') {
+            try {
+              await invoke('shrink_to_pill');
+            } catch (_) {}
+          }
+        }, 380);
+        break;
+
+      case 'preview':
+        this.isExpanded = false;
+        try {
+          await invoke('show_preview_notch');
+        } catch (_) {}
+        setTimeout(() => {
+          this.notchShell.classList.remove('state-pill', 'state-expanded', 'expanded');
+          this.notchShell.classList.add('state-preview', 'collapsed');
+        }, 15);
+        break;
+
+      case 'expanded':
+        this.isExpanded = true;
+        // Expand transparent native window canvas first so shell can morph smoothly within it
+        try {
+          await invoke('expand_window');
+        } catch (_) {}
+        setTimeout(() => {
+          this.notchShell.classList.remove('state-pill', 'state-preview', 'collapsed');
+          this.notchShell.classList.add('state-expanded', 'expanded');
+          this.searchInput.focus();
+        }, 15);
+        break;
+    }
   }
 
   private initEventListeners() {
@@ -94,19 +154,19 @@ class ClipzApp {
       clearTimeout(this.hoverCollapseTimer);
       clearTimeout(this.hoverExpandTimer);
       this.hoverExpandTimer = setTimeout(() => {
-        if (!this.isExpanded) {
-          this.expandNotch();
+        if (this.currentState !== 'expanded') {
+          this.setNotchState('expanded');
         }
       }, 180);
     });
 
-    // Retract notch smoothly when cursor leaves the Clipz window
+    // Retract notch smoothly back to micro-pill when cursor leaves the Clipz window
     this.notchShell.addEventListener('mouseleave', () => {
       clearTimeout(this.hoverExpandTimer);
       clearTimeout(this.hoverCollapseTimer);
       this.hoverCollapseTimer = setTimeout(() => {
-        if (this.isExpanded && this.historyModal.classList.contains('hidden')) {
-          this.collapseNotch();
+        if (this.currentState === 'expanded' && this.historyModal.classList.contains('hidden')) {
+          this.setNotchState('pill');
         }
       }, 300);
     });
@@ -133,7 +193,7 @@ class ClipzApp {
     // Keyboard Shortcuts Navigation
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        this.collapseNotch();
+        this.setNotchState('pill');
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         this.navigateSelection(1);
@@ -159,9 +219,18 @@ class ClipzApp {
         this.updatePillPreview(item);
         this.renderClips();
 
-        // 1.2s Copy Pulse Feedback Badge
-        this.notchShell.classList.add('copy-pulse');
-        setTimeout(() => this.notchShell.classList.remove('copy-pulse'), 1200);
+        // 1.2s Copy Pulse Feedback & expand to 32px preview notch, then auto-retract to 28px micro-pill after 3s
+        if (this.currentState !== 'expanded') {
+          this.setNotchState('preview');
+          this.notchShell.classList.add('copy-pulse');
+          setTimeout(() => this.notchShell.classList.remove('copy-pulse'), 1200);
+
+          this.previewTimer = setTimeout(() => {
+            if (this.currentState === 'preview') {
+              this.setNotchState('pill');
+            }
+          }, 3000);
+        }
       });
 
       // Listen for global Alt + C hotkey
@@ -225,37 +294,19 @@ class ClipzApp {
   }
 
   private toggleExpand() {
-    if (this.isExpanded) {
-      this.collapseNotch();
+    if (this.currentState === 'expanded') {
+      this.setNotchState('pill');
     } else {
-      this.expandNotch();
+      this.setNotchState('expanded');
     }
   }
 
   private async expandNotch() {
-    if (this.isExpanded) return;
-    this.isExpanded = true;
-    try {
-      await invoke('expand_window');
-    } catch (_) {}
-    setTimeout(() => {
-      if (this.isExpanded) {
-        this.notchShell.classList.remove('collapsed');
-        this.notchShell.classList.add('expanded');
-        this.searchInput.focus();
-      }
-    }, 30);
+    this.setNotchState('expanded');
   }
 
   private async collapseNotch() {
-    if (!this.isExpanded) return;
-    this.isExpanded = false;
-    this.notchShell.classList.remove('expanded');
-    this.notchShell.classList.add('collapsed');
-    this.searchInput.blur();
-    try {
-      await invoke('collapse_window');
-    } catch (_) {}
+    this.setNotchState('pill');
   }
 
   private getFilteredClips(): ClipItem[] {
