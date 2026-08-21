@@ -184,7 +184,7 @@ fn reveal_sensitive(state: State<'_, Arc<AppState>>, id: String) -> Result<Strin
 }
 
 #[tauri::command]
-fn toggle_notch(window: tauri::Window) -> Result<(), String> {
+fn toggle_notch(window: tauri::WebviewWindow) -> Result<(), String> {
     if let Ok(is_visible) = window.is_visible() {
         if is_visible {
             let _ = window.hide();
@@ -197,29 +197,55 @@ fn toggle_notch(window: tauri::Window) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn hide_window(window: tauri::Window) -> Result<(), String> {
+fn hide_window(window: tauri::WebviewWindow) -> Result<(), String> {
     let _ = window.hide();
     Ok(())
 }
 
 #[tauri::command]
-fn show_window(window: tauri::Window) -> Result<(), String> {
+fn show_window(window: tauri::WebviewWindow) -> Result<(), String> {
     let _ = window.show();
     let _ = window.set_focus();
     Ok(())
 }
 
-#[tauri::command]
-fn expand_window(window: tauri::Window) -> Result<(), String> {
+fn set_window_bounds(window: &tauri::WebviewWindow, width: f64, height: f64) {
     let _ = window.show();
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(700.0, 500.0)));
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(width, height)));
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        let monitor_size = monitor.size();
+        let monitor_pos = monitor.position();
+        let scale_factor = window.scale_factor().unwrap_or(1.0);
+        let phys_width = (width * scale_factor) as i32;
+        let x = monitor_pos.x + (monitor_size.width as i32 - phys_width) / 2;
+        let y = monitor_pos.y;
+        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)));
+    }
+}
+
+#[tauri::command]
+fn shrink_to_pill(window: tauri::WebviewWindow) -> Result<(), String> {
+    set_window_bounds(&window, 140.0, 28.0);
+    Ok(())
+}
+
+#[tauri::command]
+fn show_preview_notch(window: tauri::WebviewWindow) -> Result<(), String> {
+    set_window_bounds(&window, 480.0, 32.0);
+    Ok(())
+}
+
+#[tauri::command]
+fn expand_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    set_window_bounds(&window, 700.0, 500.0);
     let _ = window.set_focus();
     Ok(())
 }
 
 #[tauri::command]
-fn collapse_window(window: tauri::Window) -> Result<(), String> {
-    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(700.0, 32.0)));
+fn collapse_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    set_window_bounds(&window, 140.0, 28.0);
     Ok(())
 }
 
@@ -251,14 +277,9 @@ pub fn run() {
             // 3. Start RAM TTL Security Cleanup Task
             app_state_clip.security.start_cleanup_task();
 
-            // 4. Position Window at Top-Center of Primary Monitor
+            // 4. Position Window at Top-Center of Primary Monitor as Preview Notch
             if let Some(window) = app.get_webview_window("main") {
-                if let Ok(Some(monitor)) = window.primary_monitor() {
-                    let monitor_size = monitor.size();
-                    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(700, 28));
-                    let x = (monitor_size.width as i32 - window_size.width as i32) / 2;
-                    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, 0)));
-                }
+                set_window_bounds(&window, 480.0, 32.0);
             }
 
             // 5. System Tray Icon Setup
@@ -395,6 +416,8 @@ pub fn run() {
             show_window,
             expand_window,
             collapse_window,
+            shrink_to_pill,
+            show_preview_notch,
             get_paste_history
         ])
         .run(tauri::generate_context!())
