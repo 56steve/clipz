@@ -145,7 +145,18 @@ class ClipzApp {
   }
 
   private initEventListeners() {
-    this.notchHeader.addEventListener('click', () => {
+    this.notchHeader.addEventListener('mousedown', (e) => {
+      // Don't trigger window drag if clicking action buttons or filter elements
+      if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
+      if (e.button === 0) {
+        try {
+          getCurrentWindow().startDragging();
+        } catch (_) {}
+      }
+    });
+
+    this.notchHeader.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
       this.toggleExpand();
     });
 

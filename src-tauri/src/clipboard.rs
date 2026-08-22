@@ -114,15 +114,28 @@ impl ClipboardListener {
             {
                 if let Ok(mut clipboard) = arboard::Clipboard::new() {
                     let mut last_captured_text = String::new();
+                    let mut last_captured_img_len = 0;
                     loop {
-                        thread::sleep(std::time::Duration::from_millis(500));
+                        thread::sleep(std::time::Duration::from_millis(400));
+                        let source_app = get_active_app_name();
+
                         if let Ok(text) = clipboard.get_text() {
                             if !text.is_empty() && text != last_captured_text {
                                 last_captured_text = text.clone();
                                 let _ = tx.send(RawClipEvent {
                                     content: text,
-                                    source_app: "macOS Desktop".to_string(),
+                                    source_app,
                                     is_image: false,
+                                });
+                            }
+                        } else if let Ok(image) = clipboard.get_image() {
+                            if image.bytes.len() != last_captured_img_len && !image.bytes.is_empty() {
+                                last_captured_img_len = image.bytes.len();
+                                let bmp_base64 = rgba_to_bmp_base64(&image);
+                                let _ = tx.send(RawClipEvent {
+                                    content: bmp_base64,
+                                    source_app,
+                                    is_image: true,
                                 });
                             }
                         }
@@ -306,6 +319,53 @@ pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
         }
     }
     Ok(out)
+}
+
+#[cfg(not(windows))]
+fn rgba_to_bmp_base64(img: &arboard::ImageData) -> String {
+    let width = img.width as u32;
+    let height = img.height as u32;
+    let rgba_bytes = &img.bytes;
+
+    let pixel_count = (width * height) as usize;
+    let mut bgra_pixels = Vec::with_capacity(pixel_count * 4);
+
+    for chunk in rgba_bytes.chunks_exact(4) {
+        bgra_pixels.push(chunk[2]); // B
+        bgra_pixels.push(chunk[1]); // G
+        bgra_pixels.push(chunk[0]); // R
+        bgra_pixels.push(chunk[3]); // A
+    }
+
+    let header_size = 54u32;
+    let image_size = (width * height * 4) as u32;
+    let file_size = header_size + image_size;
+
+    let mut bmp = Vec::with_capacity(file_size as usize);
+    // BITMAPFILEHEADER (14 bytes)
+    bmp.extend_from_slice(&0x4D42u16.to_le_bytes()); // 'BM'
+    bmp.extend_from_slice(&file_size.to_le_bytes());
+    bmp.extend_from_slice(&0u16.to_le_bytes());
+    bmp.extend_from_slice(&0u16.to_le_bytes());
+    bmp.extend_from_slice(&header_size.to_le_bytes());
+
+    // BITMAPINFOHEADER (40 bytes)
+    bmp.extend_from_slice(&40u32.to_le_bytes()); // biSize
+    bmp.extend_from_slice(&(width as i32).to_le_bytes()); // biWidth
+    bmp.extend_from_slice(&(-(height as i32)).to_le_bytes()); // biHeight (negative for top-down)
+    bmp.extend_from_slice(&1u16.to_le_bytes()); // biPlanes
+    bmp.extend_from_slice(&32u16.to_le_bytes()); // biBitCount
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // biCompression
+    bmp.extend_from_slice(&image_size.to_le_bytes()); // biSizeImage
+    bmp.extend_from_slice(&0i32.to_le_bytes()); // biXPelsPerMeter
+    bmp.extend_from_slice(&0i32.to_le_bytes()); // biYPelsPerMeter
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // biClrUsed
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // biClrImportant
+
+    bmp.extend_from_slice(&bgra_pixels);
+
+    let encoded = base64_encode(&bmp);
+    format!("data:image/bmp;base64,{}", encoded)
 }
 
 #[cfg(windows)]
