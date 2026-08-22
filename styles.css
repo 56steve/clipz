@@ -1,6 +1,7 @@
 /* Clipz - Glassmorphic Dynamic Island Notch Design System */
 
 :root {
+  color-scheme: dark;
   --bg-dark: #000000;
   --bg-card: #0d0d10;
   --bg-card-hover: #15151a;
@@ -32,6 +33,7 @@
   margin: 0;
   padding: 0;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Global Sleek 4px Dark Scrollbar */
@@ -56,6 +58,7 @@
 html, body {
   background: transparent !important;
   background-color: transparent !important;
+  color-scheme: dark !important;
   margin: 0;
   padding: 0;
   overflow: hidden !important;
@@ -234,7 +237,7 @@ body {
   opacity: 1;
 }
 
-/* Notch Header Bar */
+/* Notch Header Bar & Drag Region */
 .notch-header {
   height: 32px;
   min-height: 32px;
@@ -242,9 +245,18 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0 14px;
-  cursor: pointer;
+  cursor: grab;
   border-bottom: 1px solid transparent;
   transition: border-color 0.2s ease, background 0.2s ease, height 0.2s ease;
+  -webkit-app-region: drag;
+}
+
+.notch-header:active {
+  cursor: grabbing;
+}
+
+button, input, select, textarea, .filter-btn, .icon-btn, .shortcut-badge, .clip-item, .notch-body, .modal-overlay, .lightbox-overlay {
+  -webkit-app-region: no-drag;
 }
 
 .notch-header:hover {

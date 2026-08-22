@@ -153,9 +153,51 @@ fn copy_to_clipboard(
         };
 
         if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            if target_text.starts_with("data:image/") {
+                if let Some(pos) = target_text.find(";base64,") {
+                    let b64_str = &target_text[pos + 8..];
+                    if let Ok(bmp_bytes) = clipboard::base64_decode(b64_str) {
+                        if bmp_bytes.len() > 54 && &bmp_bytes[0..2] == b"BM" {
+                            let width = u32::from_le_bytes(bmp_bytes[18..22].try_into().unwrap_or_default()) as usize;
+                            let raw_height = i32::from_le_bytes(bmp_bytes[22..26].try_into().unwrap_or_default());
+                            let height = raw_height.abs() as usize;
+                            let off_bits = u32::from_le_bytes(bmp_bytes[10..14].try_into().unwrap_or_default()) as usize;
+
+                            if off_bits < bmp_bytes.len() && width > 0 && height > 0 {
+                                let pixel_bytes = &bmp_bytes[off_bits..];
+                                let mut rgba_pixels = Vec::with_capacity(pixel_bytes.len());
+                                for chunk in pixel_bytes.chunks_exact(4) {
+                                    rgba_pixels.push(chunk[2]); // R
+                                    rgba_pixels.push(chunk[1]); // G
+                                    rgba_pixels.push(chunk[0]); // B
+                                    rgba_pixels.push(chunk[3]); // A
+                                }
+                                let img_data = arboard::ImageData {
+                                    width,
+                                    height,
+                                    bytes: std::borrow::Cow::Owned(rgba_pixels),
+                                };
+                                let _ = clipboard.set_image(img_data);
+
+                                if let Some(clip_id) = &id {
+                                    let _ = state.db.log_paste(clip_id, &paste_tracker::get_active_app_name());
+                                }
+                                if auto_paste.unwrap_or(false) {
+                                    paste_tracker::simulate_paste();
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+
             let _ = clipboard.set_text(target_text);
             if let Some(clip_id) = &id {
-                let _ = state.db.log_paste(clip_id, "macOS Application");
+                let _ = state.db.log_paste(clip_id, &paste_tracker::get_active_app_name());
+            }
+            if auto_paste.unwrap_or(false) {
+                paste_tracker::simulate_paste();
             }
             return Ok(());
         }
