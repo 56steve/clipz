@@ -105,14 +105,14 @@ class ClipzApp {
         this.notchShell.classList.remove('state-preview', 'state-expanded', 'expanded');
         this.notchShell.classList.add('state-pill', 'collapsed');
         this.searchInput.blur();
-        // Wait 380ms for CSS transition to smoothly morph back down before shrinking native OS window
+        // Wait 420ms for CSS transition (350ms) to completely finish before shrinking native OS window
         this.collapseWindowTimer = setTimeout(async () => {
           if (this.currentState === 'pill') {
             try {
               await invoke('shrink_to_pill');
             } catch (_) {}
           }
-        }, 380);
+        }, 420);
         break;
 
       case 'preview':
@@ -120,23 +120,26 @@ class ClipzApp {
         try {
           await invoke('show_preview_notch');
         } catch (_) {}
-        setTimeout(() => {
+        requestAnimationFrame(() => {
           this.notchShell.classList.remove('state-pill', 'state-expanded', 'expanded');
           this.notchShell.classList.add('state-preview', 'collapsed');
-        }, 15);
+        });
         break;
 
       case 'expanded':
         this.isExpanded = true;
-        // Expand transparent native window canvas first so shell can morph smoothly within it
         try {
           await invoke('expand_window');
         } catch (_) {}
-        setTimeout(() => {
+        requestAnimationFrame(() => {
           this.notchShell.classList.remove('state-pill', 'state-preview', 'collapsed');
           this.notchShell.classList.add('state-expanded', 'expanded');
-          this.searchInput.focus();
-        }, 15);
+          setTimeout(() => {
+            if (this.currentState === 'expanded') {
+              this.searchInput.focus({ preventScroll: true });
+            }
+          }, 120);
+        });
         break;
     }
   }
