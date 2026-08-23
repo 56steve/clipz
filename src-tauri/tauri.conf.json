@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Clipz",
-        "width": 700,
-        "height": 32,
+        "width": 130,
+        "height": 36,
         "center": true,
         "resizable": false,
         "decorations": false,
