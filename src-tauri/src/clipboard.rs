@@ -116,7 +116,7 @@ impl ClipboardListener {
                     let mut last_captured_text = String::new();
                     let mut last_captured_img_len = 0;
                     loop {
-                        thread::sleep(std::time::Duration::from_millis(400));
+                        thread::sleep(std::time::Duration::from_millis(100));
                         let source_app = get_active_app_name();
 
                         if let Ok(text) = clipboard.get_text() {
@@ -169,7 +169,17 @@ fn read_clipboard_text() -> Option<String> {
             return None;
         }
 
-        if OpenClipboard(HWND::default()).is_err() {
+        // Micro-retry loop (5 attempts x 10ms) if source application locks clipboard briefly
+        let mut opened = false;
+        for _ in 0..5 {
+            if OpenClipboard(HWND::default()).is_ok() {
+                opened = true;
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        if !opened {
             return None;
         }
 
@@ -205,7 +215,17 @@ fn read_clipboard_image() -> Option<String> {
             return None;
         }
 
-        if OpenClipboard(HWND::default()).is_err() {
+        // Micro-retry loop (5 attempts x 10ms) if source application locks clipboard briefly
+        let mut opened = false;
+        for _ in 0..5 {
+            if OpenClipboard(HWND::default()).is_ok() {
+                opened = true;
+                break;
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        if !opened {
             return None;
         }
 
