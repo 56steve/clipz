@@ -413,9 +413,50 @@ fn collapse_window(window: tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_global_shortcut(state: tauri::State<Arc<AppState>>) -> Result<String, String> {
+    if let Ok(Some(sc)) = state.db.get_setting("global_shortcut") {
+        Ok(sc)
+    } else {
+        #[cfg(target_os = "macos")]
+        return Ok("Cmd+Shift+C".to_string());
+        #[cfg(not(target_os = "macos"))]
+        return Ok("Alt+C".to_string());
+    }
+}
+
+#[tauri::command]
+fn center_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    if let Ok(Some(monitor)) = window.primary_monitor() {
+        let size = monitor.size();
+        let scale = monitor.scale_factor();
+        let win_width = (130.0 * scale) as u32;
+        let x = ((size.width.saturating_sub(win_width)) / 2) as i32;
+        let y = 12;
+        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn save_global_shortcut(shortcut: String, state: tauri::State<Arc<AppState>>) -> Result<(), String> {
+    let clean = shortcut.trim();
+    if clean.is_empty() {
+        return Err("Shortcut cannot be empty".to_string());
+    }
+    state.db.set_setting("global_shortcut", clean).map_err(|e| e.to_string())?;
+    paste_tracker::update_global_shortcut(clean);
+    Ok(())
+}
+
 pub fn run() {
     let db = DatabaseManager::new().expect("Failed to initialize SQLite database");
     let security = SecurityManager::new();
+
+    let initial_shortcut = db.get_setting("global_shortcut").ok().flatten().unwrap_or_else(|| {
+        if cfg!(target_os = "macos") { "Cmd+Shift+C".to_string() } else { "Alt+C".to_string() }
+    });
+    paste_tracker::update_global_shortcut(&initial_shortcut);
 
     let app_state = Arc::new(AppState {
         db,
@@ -583,7 +624,10 @@ pub fn run() {
             shrink_to_pill,
             show_preview_notch,
             start_dragging,
-            get_paste_history
+            get_paste_history,
+            get_global_shortcut,
+            save_global_shortcut,
+            center_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

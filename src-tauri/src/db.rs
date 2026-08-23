@@ -83,6 +83,11 @@ impl DatabaseManager {
                 INSERT INTO clips_fts(clips_fts, id, content, source_app) VALUES('delete', old.id, old.content, old.source_app);
                 INSERT INTO clips_fts(id, content, source_app) VALUES (new.id, new.content, new.source_app);
             END;
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
         ")?;
 
         Ok(Self {
@@ -292,6 +297,27 @@ impl DatabaseManager {
             items.push(item?);
         }
         Ok(items)
+    }
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut rows = stmt.query(params![key])?;
+        if let Some(row) = rows.next()? {
+            let val: String = row.get(0)?;
+            Ok(Some(val))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+        Ok(())
     }
 }
 
