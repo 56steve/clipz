@@ -33,10 +33,15 @@
     <main id="notch-body" class="notch-body">
       <!-- Search & Quick Filter Bar -->
       <section class="search-section">
-        <div class="search-input-wrapper">
-          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          <input type="text" id="search-input" placeholder="Search..." autofocus />
-          <kbd class="shortcut-badge">Esc to collapse</kbd>
+        <div class="search-row">
+          <div class="search-input-wrapper">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="search-input" placeholder="Search..." autofocus />
+            <kbd class="shortcut-badge">Esc to collapse</kbd>
+          </div>
+          <button id="settings-btn" class="settings-btn-outer" title="Preferences">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          </button>
         </div>
 
         <div class="filter-pills">
@@ -77,8 +82,63 @@
         <div class="clips-container" id="clips-container"></div>
       </section>
 
+      <!-- Settings Panel inside Drawer Body -->
+      <section class="settings-panel hidden" id="settings-panel">
+        <div class="settings-header">
+          <button id="back-from-settings-btn" class="settings-back-btn" title="Back to Clips (Esc)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            <span>Back</span>
+          </button>
+          <span class="settings-header-title">Preferences</span>
+          <span id="os-platform-badge" class="platform-badge"></span>
+        </div>
+
+        <div class="settings-content">
+          <div class="settings-section-title">GLOBAL SHORTCUT</div>
+          
+          <div class="setting-card">
+            <div class="setting-card-row">
+              <div class="setting-card-info">
+                <div class="setting-card-title">Summon Clipz</div>
+                <div class="setting-card-sub">Global keybinding to toggle Clipz from anywhere on your system</div>
+              </div>
+              
+              <div class="shortcut-input-group">
+                <span id="save-indicator" class="save-indicator hidden">✓ Saved</span>
+                <div class="keycap-pill" id="keycap-container" title="Click to change hotkey">
+                  <div id="keycap-display" class="keycap-display-text"></div>
+                </div>
+                <div class="shortcut-actions">
+                  <button id="reset-hotkey-btn" class="shortcut-icon-btn" title="Reset default">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                  </button>
+                  <button id="clear-hotkey-btn" class="shortcut-icon-btn" title="Clear hotkey">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recording Popover Box (matching reference image) -->
+            <div id="recording-popover" class="recording-popover hidden">
+              <div class="recording-display-box">
+                <span id="recording-status-text" class="recording-status-text">Type on your keyboard</span>
+              </div>
+              <div class="recording-popover-actions">
+                <button id="save-hotkey-btn" class="btn-save-changes">Save Changes</button>
+                <button id="cancel-hotkey-btn" class="btn-cancel-recording">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-footer-note">
+            <span id="default-shortcut-hint">Default: <code>Alt + C</code> (Windows) &bull; <code>Cmd + Shift + C</code> (macOS)</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Notch Footer / Status bar -->
-      <footer class="notch-footer">
+      <footer class="notch-footer" id="notch-footer">
         <div class="status-shortcut">
           <span class="key-hint">↑ ↓</span> navigate
         </div>
@@ -90,17 +150,6 @@
         </div>
       </footer>
     </main>
-
-    <!-- Paste History Popup Overlay -->
-    <div id="history-modal" class="modal-overlay hidden">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>📋 Paste History Log</h3>
-          <button id="close-modal-btn" class="icon-btn">&times;</button>
-        </div>
-        <div class="modal-body" id="history-list"></div>
-      </div>
-    </div>
 
     <!-- Delete Confirmation Modal Overlay -->
     <div id="delete-modal" class="modal-overlay hidden">

@@ -46,6 +46,20 @@ class ClipzApp {
   private lightboxImg: HTMLImageElement;
   private closeLightboxBtn: HTMLElement;
 
+  private searchSection: HTMLElement;
+  private timelineSection: HTMLElement;
+  private settingsPanel: HTMLElement;
+  private settingsBtn: HTMLElement;
+  private backFromSettingsBtn: HTMLElement;
+  private keycapContainer: HTMLElement;
+  private keycapDisplay: HTMLElement;
+  private saveIndicator: HTMLElement;
+  private resetHotkeyBtn: HTMLElement;
+  private osPlatformBadge: HTMLElement;
+  private shortcutBadge: HTMLElement;
+  private currentShortcut: string = 'Alt+C';
+  private isRecordingHotkey: boolean = false;
+
   private clips: ClipItem[] = [];
   private currentFilter: string = 'all';
   private searchDebounceTimer: any = null;
@@ -66,6 +80,9 @@ class ClipzApp {
     this.pillPreview = document.getElementById('pill-preview')!;
     this.streamText = document.getElementById('stream-text')!;
     this.searchInput = document.getElementById('search-input') as HTMLInputElement;
+    this.shortcutBadge = document.querySelector('.shortcut-badge') as HTMLElement;
+    this.searchSection = document.querySelector('.search-section') as HTMLElement;
+    this.timelineSection = document.getElementById('timeline-section')!;
     this.clipsContainer = document.getElementById('clips-container')!;
     this.emptyState = document.getElementById('empty-state')!;
     this.clipCount = document.getElementById('clip-count');
@@ -84,9 +101,19 @@ class ClipzApp {
     this.lightboxImg = document.getElementById('lightbox-img') as HTMLImageElement;
     this.closeLightboxBtn = document.getElementById('close-lightbox-btn')!;
 
+    this.settingsPanel = document.getElementById('settings-panel')!;
+    this.settingsBtn = document.getElementById('settings-btn')!;
+    this.backFromSettingsBtn = document.getElementById('back-from-settings-btn')!;
+    this.keycapContainer = document.getElementById('keycap-container')!;
+    this.keycapDisplay = document.getElementById('keycap-display')!;
+    this.saveIndicator = document.getElementById('save-indicator')!;
+    this.resetHotkeyBtn = document.getElementById('reset-hotkey-btn')!;
+    this.osPlatformBadge = document.getElementById('os-platform-badge')!;
+
     this.initEventListeners();
     this.loadClips();
     this.initTauriListeners();
+    this.loadSettings();
 
     // Start directly as the ultra-compact micro-pill
     this.setNotchState('pill');
@@ -102,6 +129,7 @@ class ClipzApp {
     switch (state) {
       case 'pill':
         this.isExpanded = false;
+        this.closeSettingsPanel();
         this.notchShell.classList.remove('state-preview', 'state-expanded', 'expanded');
         this.notchShell.classList.add('state-pill', 'collapsed');
         this.searchInput.blur();
@@ -196,6 +224,67 @@ class ClipzApp {
       }, 350);
     });
 
+    // Settings Panel Event Listeners
+    if (this.settingsBtn) {
+      this.settingsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.openSettingsPanel();
+      });
+    }
+    if (this.backFromSettingsBtn) {
+      this.backFromSettingsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeSettingsPanel();
+      });
+    }
+    if (this.keycapContainer) {
+      this.keycapContainer.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleRecordHotkey();
+      });
+    }
+    if (this.resetHotkeyBtn) {
+      this.resetHotkeyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.resetDefaultHotkey();
+      });
+    }
+    const clearHotkeyBtn = document.getElementById('clear-hotkey-btn');
+    if (clearHotkeyBtn) {
+      clearHotkeyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.saveHotkey('');
+      });
+    }
+    const saveHotkeyBtn = document.getElementById('save-hotkey-btn');
+    if (saveHotkeyBtn) {
+      saveHotkeyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.tempRecordedShortcut) {
+          this.saveHotkey(this.tempRecordedShortcut);
+        }
+        this.stopRecordingHotkey();
+      });
+    }
+    const cancelHotkeyBtn = document.getElementById('cancel-hotkey-btn');
+    if (cancelHotkeyBtn) {
+      cancelHotkeyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.stopRecordingHotkey();
+      });
+    }
+    const centerNotchBtn = document.getElementById('center-notch-btn');
+    if (centerNotchBtn) {
+      centerNotchBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          await invoke('center_window');
+        } catch (err) {
+          console.error('Failed to center window:', err);
+        }
+      });
+    }
+
     // Search input handler with FTS5 debounce
     this.searchInput.addEventListener('input', () => {
       clearTimeout(this.searchDebounceTimer);
@@ -217,8 +306,16 @@ class ClipzApp {
 
     // Keyboard Shortcuts Navigation
     window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (this.isRecordingHotkey) {
+        this.handleHotkeyKeydown(e);
+        return;
+      }
       if (e.key === 'Escape') {
-        this.setNotchState('pill');
+        if (!this.settingsPanel.classList.contains('hidden')) {
+          this.closeSettingsPanel();
+        } else {
+          this.setNotchState('pill');
+        }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         this.navigateSelection(1);
@@ -289,6 +386,184 @@ class ClipzApp {
       this.renderClips();
     } catch (err) {
       console.error('Failed to load clips:', err);
+    }
+  }
+
+  private async loadSettings() {
+    try {
+      const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
+      if (this.osPlatformBadge) {
+        if (isMac) {
+          this.osPlatformBadge.innerHTML = `<svg width="11" height="11" viewBox="0 0 170 170" fill="#ffffff" style="margin-right:5px;"><path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.34.13-9.16-1.9-14.49-6.1-3.26-2.64-7.14-7.27-11.64-13.9-6.85-10.09-12.35-21.2-16.5-33.32-4.14-12.13-6.22-23.75-6.22-34.86 0-14.54 3.73-26.65 11.19-36.33 7.46-9.68 16.73-14.65 27.81-14.9 5.35 0 11.05 1.34 17.1 4.02 6.05 2.68 10.3 4.02 12.74 4.02 2.18 0 6.46-1.39 12.86-4.17 6.4-2.78 11.83-4.04 16.29-3.78 12.01.63 21.7 5.1 29.08 13.41-10.74 6.53-15.99 15.54-15.74 27.03.25 9.05 3.76 16.59 10.53 22.63 6.77 6.04 14.88 9.53 24.32 10.48-2.52 7.42-5.91 14.85-10.18 22.31zM119.22 31.09c0-6.79 2.5-13.34 7.51-19.65 5.01-6.31 11.31-10.34 18.9-12.09.25 1.13.38 2.14.38 3.02 0 6.66-2.56 13.19-7.68 19.58-5.12 6.4-11.41 10.45-18.87 12.16-.06-1.01-.24-2.02-.24-3.02z"/></svg><span style="color:#ffffff;">macOS</span>`;
+        } else {
+          this.osPlatformBadge.innerHTML = `<svg width="11" height="11" viewBox="0 0 88 88" style="margin-right:5px;"><path d="M0 12.402l35.687-4.86.016 34.423-35.67.202zm35.67 33.329l.029 34.502L0 75.312V45.928zm4.357-38.932L88 0v41.442l-47.973.473zm47.973 39.467V88L40.027 81.258l-.017-34.786z" fill="#0078D4"/></svg><span style="color:#0078D4;">Windows</span>`;
+        }
+      }
+
+      const shortcut = await invoke<string>('get_global_shortcut');
+      const activeShortcut = shortcut || (isMac ? 'Cmd+Shift+C' : 'Alt+C');
+      this.currentShortcut = activeShortcut;
+      this.renderKeycaps(activeShortcut);
+
+      if (this.shortcutBadge) {
+        this.shortcutBadge.textContent = activeShortcut;
+      }
+    } catch (err) {
+      console.warn('Failed to load settings:', err);
+    }
+  }
+
+  private renderKeycaps(shortcutStr: string) {
+    if (!this.keycapDisplay) return;
+
+    if (this.isRecordingHotkey) {
+      if (this.keycapContainer) this.keycapContainer.classList.add('recording');
+      this.keycapDisplay.innerHTML = `Press shortcut keys...`;
+      return;
+    }
+
+    if (this.keycapContainer) this.keycapContainer.classList.remove('recording');
+
+    if (!shortcutStr || shortcutStr.trim() === '') {
+      this.keycapDisplay.innerHTML = `<span style="color: var(--text-dim); font-style: italic;">None</span>`;
+      return;
+    }
+
+    const parts = shortcutStr.split('+');
+    const formatted = parts
+      .map((part) => {
+        let label = part.trim();
+        if (label === 'Cmd' || label === 'Meta') label = '⌘';
+        else if (label === 'Alt') label = 'Alt';
+        else if (label === 'Shift') label = 'Shift';
+        else if (label === 'Ctrl' || label === 'Control') label = 'Ctrl';
+        return label;
+      })
+      .join(' + ');
+
+    this.keycapDisplay.innerHTML = formatted;
+  }
+
+  private openSettingsPanel() {
+    this.searchSection.classList.add('hidden');
+    this.timelineSection.classList.add('hidden');
+    const footer = document.getElementById('notch-footer');
+    if (footer) footer.classList.add('hidden');
+    this.settingsPanel.classList.remove('hidden');
+    this.loadSettings();
+  }
+
+  private closeSettingsPanel() {
+    this.stopRecordingHotkey();
+    this.settingsPanel.classList.add('hidden');
+    this.searchSection.classList.remove('hidden');
+    this.timelineSection.classList.remove('hidden');
+    const footer = document.getElementById('notch-footer');
+    if (footer) footer.classList.remove('hidden');
+  }
+
+  private tempRecordedShortcut: string = '';
+
+  private toggleRecordHotkey() {
+    if (this.isRecordingHotkey) {
+      this.stopRecordingHotkey();
+    } else {
+      this.startRecordingHotkey();
+    }
+  }
+
+  private startRecordingHotkey() {
+    this.isRecordingHotkey = true;
+    this.tempRecordedShortcut = '';
+    const popover = document.getElementById('recording-popover');
+    const statusText = document.getElementById('recording-status-text');
+    const box = document.querySelector('.recording-display-box');
+    if (popover) popover.classList.remove('hidden');
+    if (statusText) statusText.innerText = 'Type on your keyboard';
+    if (box) box.classList.remove('has-keys');
+    if (this.keycapContainer) this.keycapContainer.classList.add('recording');
+  }
+
+  private stopRecordingHotkey() {
+    this.isRecordingHotkey = false;
+    this.tempRecordedShortcut = '';
+    const popover = document.getElementById('recording-popover');
+    if (popover) popover.classList.add('hidden');
+    if (this.keycapContainer) this.keycapContainer.classList.remove('recording');
+    this.renderKeycaps(this.currentShortcut);
+  }
+
+  private handleHotkeyKeydown(e: KeyboardEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.key === 'Escape') {
+      this.stopRecordingHotkey();
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      if (this.tempRecordedShortcut) {
+        this.saveHotkey(this.tempRecordedShortcut);
+      }
+      this.stopRecordingHotkey();
+      return;
+    }
+
+    const parts: string[] = [];
+    if (e.ctrlKey) parts.push('Ctrl');
+    if (e.metaKey) parts.push('Cmd');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+
+    let keyName = e.key;
+    const statusText = document.getElementById('recording-status-text');
+    const box = document.querySelector('.recording-display-box');
+
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(keyName)) {
+      const displayStr = parts.map(p => p === 'Cmd' || p === 'Meta' ? '⌘' : p).join(' + ');
+      if (statusText) statusText.innerText = displayStr || 'Type on your keyboard';
+      if (box) box.classList.remove('has-keys');
+      return;
+    }
+
+    if (keyName === ' ') keyName = 'Space';
+    else if (keyName.length === 1) keyName = keyName.toUpperCase();
+
+    parts.push(keyName);
+    this.tempRecordedShortcut = parts.join('+');
+
+    const formattedDisplay = parts.map(p => p === 'Cmd' || p === 'Meta' ? '⌘' : p).join(' + ');
+    if (statusText) statusText.innerText = formattedDisplay;
+    if (box) box.classList.add('has-keys');
+  }
+
+  private async resetDefaultHotkey() {
+    const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
+    const defaultShortcut = isMac ? 'Cmd+Shift+C' : 'Alt+C';
+    await this.saveHotkey(defaultShortcut);
+  }
+
+  private async saveHotkey(shortcut: string) {
+    if (!shortcut) return;
+    try {
+      this.currentShortcut = shortcut;
+      this.isRecordingHotkey = false;
+      this.renderKeycaps(shortcut);
+
+      await invoke('save_global_shortcut', { shortcut });
+      if (this.shortcutBadge) {
+        this.shortcutBadge.textContent = shortcut;
+      }
+
+      if (this.saveIndicator) {
+        this.saveIndicator.classList.remove('hidden');
+        setTimeout(() => {
+          this.saveIndicator.classList.add('hidden');
+        }, 1500);
+      }
+    } catch (err) {
+      console.error('Failed to save shortcut:', err);
     }
   }
 

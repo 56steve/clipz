@@ -49,6 +49,74 @@ impl PasteTracker {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedShortcut {
+    pub vk: u32,
+    pub ctrl: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub meta: bool,
+}
+
+static CURRENT_SHORTCUT: std::sync::RwLock<Option<ParsedShortcut>> = std::sync::RwLock::new(None);
+
+pub fn update_global_shortcut(shortcut_str: &str) {
+    if let Ok(mut lock) = CURRENT_SHORTCUT.write() {
+        if shortcut_str.trim().is_empty() {
+            *lock = None;
+        } else {
+            *lock = parse_shortcut_str(shortcut_str);
+        }
+    }
+}
+
+fn parse_shortcut_str(s: &str) -> Option<ParsedShortcut> {
+    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let mut ctrl = false;
+    let mut alt = false;
+    let mut shift = false;
+    let mut meta = false;
+    let mut vk = 0u32;
+
+    for part in parts {
+        match part.to_lowercase().as_str() {
+            "ctrl" | "control" => ctrl = true,
+            "alt" | "option" => alt = true,
+            "shift" => shift = true,
+            "cmd" | "meta" | "super" | "win" => meta = true,
+            k => {
+                vk = match k {
+                    "space" => 0x20,
+                    "tab" => 0x09,
+                    "esc" | "escape" => 0x1B,
+                    "enter" | "return" => 0x0D,
+                    s if s.len() == 1 => {
+                        let ch = s.chars().next().unwrap();
+                        if ch >= 'a' && ch <= 'z' {
+                            (ch as u8 - b'a' + b'A') as u32
+                        } else if ch >= '0' && ch <= '9' {
+                            ch as u32
+                        } else {
+                            0
+                        }
+                    }
+                    _ => 0,
+                };
+            }
+        }
+    }
+
+    if vk != 0 {
+        Some(ParsedShortcut { vk, ctrl, alt, shift, meta })
+    } else {
+        None
+    }
+}
+
 #[cfg(windows)]
 static mut PASTE_TX: Option<Sender<PasteEvent>> = None;
 
@@ -60,10 +128,17 @@ unsafe extern "system" fn keyboard_proc(ncode: i32, wparam: WPARAM, lparam: LPAR
     if ncode >= 0 && (wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN) {
         let kbd = *(lparam.0 as *const KBDLLHOOKSTRUCT);
         
-        // Detect Alt + C global shortcut (0x43 is 'C')
-        if kbd.vkCode == 0x43 {
+        let shortcut = CURRENT_SHORTCUT.read().ok().and_then(|lock| lock.clone())
+            .unwrap_or(ParsedShortcut { vk: 0x43, ctrl: false, alt: true, shift: false, meta: false });
+
+        if kbd.vkCode == shortcut.vk {
             let alt_pressed = (kbd.flags.0 & 0x20 != 0) || ((GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0);
-            if alt_pressed {
+            let ctrl_pressed = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
+            let shift_pressed = (GetAsyncKeyState(windows::Win32::UI::Input::KeyboardAndMouse::VK_SHIFT.0 as i32) as u16 & 0x8000) != 0;
+            let meta_pressed = (GetAsyncKeyState(windows::Win32::UI::Input::KeyboardAndMouse::VK_LWIN.0 as i32) as u16 & 0x8000) != 0 
+                || (GetAsyncKeyState(windows::Win32::UI::Input::KeyboardAndMouse::VK_RWIN.0 as i32) as u16 & 0x8000) != 0;
+
+            if alt_pressed == shortcut.alt && ctrl_pressed == shortcut.ctrl && shift_pressed == shortcut.shift && meta_pressed == shortcut.meta {
                 if let Some(ref tx) = PASTE_TX {
                     let _ = tx.send(PasteEvent {
                         target_app: "HOTKEY_ALT_C".to_string(),
