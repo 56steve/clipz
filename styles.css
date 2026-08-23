@@ -80,8 +80,8 @@ body {
   width: 100%;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  padding: 0 8px;
+  align-items: center;
+  padding: 0;
   margin: 0;
   background: transparent !important;
 }
@@ -93,7 +93,7 @@ body {
   height: 100%;
   margin: 0 auto;
   background: #000000;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 22px;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
   transition: width 0.38s cubic-bezier(0.16, 1, 0.3, 1),
@@ -108,55 +108,120 @@ body {
   will-change: width, height, max-width, max-height, border-radius;
 }
 
-/* Collapsed 28px Ultra-Compact Micro-Pill State (Tab/Folder Avoidance) */
+/* Collapsed 28px Compact Micro-Pill State */
 .notch-shell.state-pill {
-  max-width: 130px !important;
-  width: 130px !important;
+  max-width: 96px !important;
+  width: 96px !important;
   max-height: 28px !important;
   height: 28px !important;
   border-radius: 9999px !important;
-  opacity: 0.9;
+  opacity: 0.95;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(12px);
   overflow: hidden !important;
+  cursor: grab;
 }
 
 .notch-shell.state-pill:hover {
-  opacity: 1;
-  border-color: var(--accent-primary) !important;
+  border-color: rgba(99, 102, 241, 0.8) !important;
 }
 
 .notch-shell.state-pill .notch-header {
   height: 28px !important;
   min-height: 28px !important;
   padding: 0 8px !important;
-  justify-content: center !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 .notch-shell.state-pill .pill-brand {
-  flex: 1 1 auto !important;
-  justify-content: center !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
   gap: 6px !important;
 }
 
-.notch-shell.state-pill .pill-stream-preview,
-.notch-shell.state-pill .pill-actions {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
+.notch-shell.state-pill .notch-logo-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
 }
 
-/* Stream Preview 32px Notch State (Capture Glow & Real-Time Stream) */
+.notch-shell.state-pill .notch-title {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.notch-shell.state-pill .pill-stream-preview {
+  display: none !important;
+}
+
+.notch-shell.state-pill .pill-actions {
+  display: flex !important;
+  opacity: 0.55 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  flex: 0 0 auto !important;
+  transition: opacity 0.15s ease;
+}
+
+.notch-shell.state-pill:hover .pill-actions,
+.notch-shell.state-pill .pill-actions:hover {
+  opacity: 1 !important;
+}
+
+.notch-shell.state-pill #toggle-expand-btn {
+  padding: 0 !important;
+  width: 14px !important;
+  height: 14px !important;
+  color: var(--text-muted) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: default !important;
+  border: none !important;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.notch-shell.state-pill #toggle-expand-btn:hover {
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #ffffff !important;
+  cursor: default !important;
+  transform: none !important;
+}
+
+/* Stream Preview 28px Elongated Notch State */
 .notch-shell.state-preview {
   max-width: 480px !important;
   width: 480px !important;
-  max-height: 32px !important;
-  height: 32px !important;
-  border-radius: 16px !important;
+  max-height: 28px !important;
+  height: 28px !important;
+  border-radius: 9999px !important;
   opacity: 1;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(12px);
   overflow: hidden !important;
+}
+
+.notch-shell.state-preview .notch-header {
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
 }
 
 .notch-shell.state-preview .pill-stream-preview,
@@ -191,13 +256,6 @@ body {
   transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1) 0.12s;
 }
 
-.notch-shell.collapsed {
-  max-height: 28px !important;
-  height: 28px !important;
-  border-radius: 9999px !important;
-  opacity: 0.85;
-}
-
 .notch-shell.copy-pulse {
   animation: pulse-copy 1.2s ease;
   border-color: var(--accent-primary) !important;
@@ -230,13 +288,6 @@ body {
   }
 }
 
-.notch-shell.expanded {
-  max-height: 480px;
-  height: 480px;
-  border-radius: 24px;
-  opacity: 1;
-}
-
 /* Notch Header Bar & Drag Region */
 .notch-header {
   height: 32px;
@@ -248,15 +299,10 @@ body {
   cursor: grab;
   border-bottom: 1px solid transparent;
   transition: border-color 0.2s ease, background 0.2s ease, height 0.2s ease;
-  -webkit-app-region: drag;
 }
 
 .notch-header:active {
   cursor: grabbing;
-}
-
-button, input, select, textarea, .filter-btn, .icon-btn, .shortcut-badge, .clip-item, .notch-body, .modal-overlay, .lightbox-overlay {
-  -webkit-app-region: no-drag;
 }
 
 .notch-header:hover {
@@ -272,16 +318,18 @@ button, input, select, textarea, .filter-btn, .icon-btn, .shortcut-badge, .clip-
 .pill-brand {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   flex: 0 0 90px;
+  line-height: 1;
 }
 
 .notch-logo-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   background: var(--accent-primary);
   border-radius: 50%;
   animation: pulse-dot 2s infinite;
+  flex-shrink: 0;
 }
 
 @keyframes pulse-dot {
@@ -292,8 +340,10 @@ button, input, select, textarea, .filter-btn, .icon-btn, .shortcut-badge, .clip-
 .notch-title {
   font-weight: 700;
   font-size: 11px;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
   color: var(--text-main);
+  line-height: 1;
+  user-select: none;
 }
 
 .pill-stream-preview {
@@ -302,8 +352,17 @@ button, input, select, textarea, .filter-btn, .icon-btn, .shortcut-badge, .clip-
   justify-content: center;
   text-align: center;
   flex: 1;
-  margin: 0 8px;
+  margin: 0 6px;
   overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease, max-width 0.28s ease;
+}
+
+.notch-shell.state-preview .pill-stream-preview {
+  max-width: 380px;
+  opacity: 1;
+  transition: opacity 0.22s ease 0.08s, max-width 0.32s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .stream-text {

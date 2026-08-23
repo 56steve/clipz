@@ -56,6 +56,9 @@ class ClipzApp {
   private isExpanded: boolean = false;
   private selectedIndex: number = -1;
   private pendingDeleteId: string | null = null;
+  private dragStartTime: number = 0;
+  private dragStartX: number = 0;
+  private dragStartY: number = 0;
 
   constructor() {
     this.notchShell = document.getElementById('notch-shell')!;
@@ -85,14 +88,8 @@ class ClipzApp {
     this.loadClips();
     this.initTauriListeners();
 
-    // Show initial welcome preview banner for 4 seconds on launch so position is immediately clear
-    this.streamText.textContent = '✂️ Clipz dynamic notch active • Hover to expand';
-    this.setNotchState('preview');
-    this.previewTimer = setTimeout(() => {
-      if (this.currentState === 'preview') {
-        this.setNotchState('pill');
-      }
-    }, 4000);
+    // Start directly as the ultra-compact micro-pill
+    this.setNotchState('pill');
   }
 
   private collapseWindowTimer: any = null;
@@ -145,41 +142,55 @@ class ClipzApp {
   }
 
   private initEventListeners() {
-    this.notchHeader.addEventListener('mousedown', (e) => {
+    this.notchHeader.addEventListener('mousedown', async (e) => {
       // Don't trigger window drag if clicking action buttons or filter elements
       if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
       if (e.button === 0) {
+        this.dragStartTime = Date.now();
+        this.dragStartX = e.screenX;
+        this.dragStartY = e.screenY;
         try {
-          getCurrentWindow().startDragging();
-        } catch (_) {}
+          await invoke('start_dragging');
+        } catch (_) {
+          try {
+            await getCurrentWindow().startDragging();
+          } catch (_) {}
+        }
       }
     });
 
     this.notchHeader.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
+      // If mouse moved or was held for drag gesture, do not toggle expand
+      const dragDuration = Date.now() - this.dragStartTime;
+      const moveDist = Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY);
+      if (dragDuration > 200 || moveDist > 5) {
+        return;
+      }
       this.toggleExpand();
     });
 
-    // Smart Hover Dwell: 180ms delay to prevent accidental expand when moving mouse across top bar
+    const toggleExpandBtn = document.getElementById('toggle-expand-btn');
+    if (toggleExpandBtn) {
+      toggleExpandBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleExpand();
+      });
+    }
+
+    // Cancel any pending collapse on mouse enter
     this.notchShell.addEventListener('mouseenter', () => {
       clearTimeout(this.hoverCollapseTimer);
-      clearTimeout(this.hoverExpandTimer);
-      this.hoverExpandTimer = setTimeout(() => {
-        if (this.currentState !== 'expanded') {
-          this.setNotchState('expanded');
-        }
-      }, 180);
     });
 
     // Retract notch smoothly back to micro-pill when cursor leaves the Clipz window
     this.notchShell.addEventListener('mouseleave', () => {
-      clearTimeout(this.hoverExpandTimer);
       clearTimeout(this.hoverCollapseTimer);
       this.hoverCollapseTimer = setTimeout(() => {
         if (this.currentState === 'expanded' && this.historyModal.classList.contains('hidden')) {
           this.setNotchState('pill');
         }
-      }, 300);
+      }, 350);
     });
 
     // Search input handler with FTS5 debounce
@@ -230,17 +241,18 @@ class ClipzApp {
         this.updatePillPreview(item);
         this.renderClips();
 
-        // 1.2s Copy Pulse Feedback & expand to 32px preview notch, then auto-retract to 28px micro-pill after 3s
+        // Elongate to preview stream showing what was copied, then auto-retract to micro-pill after 3.2s
         if (this.currentState !== 'expanded') {
           this.setNotchState('preview');
           this.notchShell.classList.add('copy-pulse');
           setTimeout(() => this.notchShell.classList.remove('copy-pulse'), 1200);
 
+          clearTimeout(this.previewTimer);
           this.previewTimer = setTimeout(() => {
             if (this.currentState === 'preview') {
               this.setNotchState('pill');
             }
-          }, 3000);
+          }, 3200);
         }
       });
 
