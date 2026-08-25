@@ -218,6 +218,15 @@ fn toggle_pin(state: State<'_, Arc<AppState>>, id: String) -> Result<bool, Strin
 }
 
 #[tauri::command]
+fn set_clip_reminder(
+    state: State<'_, Arc<AppState>>,
+    id: String,
+    reminder_at: Option<i64>,
+) -> Result<(), String> {
+    state.db.set_clip_reminder(&id, reminder_at).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn reveal_sensitive(state: State<'_, Arc<AppState>>, id: String) -> Result<String, String> {
     state
         .security
@@ -308,6 +317,7 @@ fn resize_window_preserving_position(window: &tauri::WebviewWindow, logical_widt
             let logical_x = (new_x as f64) / scale_factor;
             let logical_y = (new_y as f64) / scale_factor;
             let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(logical_x, logical_y)));
+            let _ = window.set_shadow(false);
         }
     } else if let Ok(Some(mon)) = window.primary_monitor() {
         let mon_pos = mon.position();
@@ -339,6 +349,7 @@ fn resize_window_preserving_position(window: &tauri::WebviewWindow, logical_widt
             let logical_x = (x as f64) / scale_factor;
             let logical_y = (y as f64) / scale_factor;
             let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(logical_x, logical_y)));
+            let _ = window.set_shadow(false);
         }
     }
 }
@@ -443,11 +454,59 @@ fn center_window(window: tauri::WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 fn save_global_shortcut(shortcut: String, state: tauri::State<Arc<AppState>>) -> Result<(), String> {
     let clean = shortcut.trim();
-    if clean.is_empty() {
-        return Err("Shortcut cannot be empty".to_string());
+    if clean.is_empty() || clean.eq_ignore_ascii_case("disabled") || clean.eq_ignore_ascii_case("none") {
+        state.db.set_setting("global_shortcut", "Disabled").map_err(|e| e.to_string())?;
+        paste_tracker::update_global_shortcut("Disabled");
+        return Ok(());
     }
     state.db.set_setting("global_shortcut", clean).map_err(|e| e.to_string())?;
     paste_tracker::update_global_shortcut(clean);
+    Ok(())
+}
+
+#[tauri::command]
+fn disable_and_uninstall_app(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<Arc<AppState>>,
+    clean_data: Option<bool>,
+) -> Result<(), String> {
+    // 1. Disable hotkeys globally
+    paste_tracker::update_global_shortcut("Disabled");
+    let _ = state.db.set_setting("global_shortcut", "Disabled");
+
+    // 2. Remove platform-specific autostart entries
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("reg")
+            .args(&["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Clipz", "/f"])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .output();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            let plist_path = std::path::Path::new(&home)
+                .join("Library/LaunchAgents/com.antigravity.clipz.plist");
+            if plist_path.exists() {
+                let _ = std::fs::remove_file(plist_path);
+            }
+        }
+    }
+
+    // 3. Optional clean DB and local data
+    if clean_data.unwrap_or(false) {
+        let _ = state.db.clear_all_clips();
+    }
+
+    // 4. Exit app cleanly
+    let handle = app_handle.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        handle.exit(0);
+    });
+
     Ok(())
 }
 
@@ -570,6 +629,7 @@ pub fn run() {
                             .unwrap_or_default()
                             .as_secs() as i64,
                         paste_count: 0,
+                        reminder_at: None,
                     };
 
                     // Only save to DB if NOT sensitive or if masked representation
@@ -618,6 +678,7 @@ pub fn run() {
             copy_to_clipboard,
             delete_clip,
             toggle_pin,
+            set_clip_reminder,
             reveal_sensitive,
             toggle_notch,
             hide_window,
@@ -630,7 +691,8 @@ pub fn run() {
             get_paste_history,
             get_global_shortcut,
             save_global_shortcut,
-            center_window
+            center_window,
+            disable_and_uninstall_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
