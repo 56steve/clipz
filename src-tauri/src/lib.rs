@@ -252,6 +252,7 @@ fn show_window(window: tauri::WebviewWindow) -> Result<(), String> {
 }
 
 fn resize_window_preserving_position(window: &tauri::WebviewWindow, logical_width: f64, logical_height: f64) {
+    let _ = window.set_shadow(false);
     let _ = window.show();
     let _ = window.set_always_on_top(true);
     let scale_factor = window.scale_factor().unwrap_or(1.0);
@@ -343,6 +344,7 @@ fn resize_window_preserving_position(window: &tauri::WebviewWindow, logical_widt
 }
 
 fn initial_center_position(window: &tauri::WebviewWindow, logical_width: f64, logical_height: f64) {
+    let _ = window.set_shadow(false);
     let _ = window.show();
     let _ = window.set_always_on_top(true);
     let scale_factor = window.scale_factor().unwrap_or(1.0);
@@ -484,6 +486,7 @@ pub fn run() {
 
             // 4. Position Window at Top-Center of Primary Monitor as Compact Pill
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_shadow(false);
                 initial_center_position(&window, 130.0, 36.0);
             }
 
@@ -538,10 +541,10 @@ pub fn run() {
             // Processing thread for Captured Clips
             std::thread::spawn(move || {
                 while let Ok(raw_event) = clip_rx.recv() {
+                    let clip_id = format!("{:x}", md5_hash(&raw_event.content));
                     let is_sensitive = SecurityManager::is_sensitive_source(&raw_event.source_app)
                         || SecurityManager::is_sensitive_pattern(&raw_event.content);
 
-                    let clip_id = format!("{:x}", md5_hash(&raw_event.content));
                     let category = classify_content(&raw_event.content, is_sensitive);
 
                     let display_content = if is_sensitive {

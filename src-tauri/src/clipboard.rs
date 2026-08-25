@@ -8,7 +8,7 @@ use windows::{
     Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM},
     Win32::System::DataExchange::{
         AddClipboardFormatListener, CloseClipboard, GetClipboardData, IsClipboardFormatAvailable,
-        OpenClipboard, RemoveClipboardFormatListener,
+        OpenClipboard,
     },
     Win32::System::Memory::GlobalLock,
     Win32::System::ProcessStatus::GetModuleFileNameExW,
@@ -16,7 +16,7 @@ use windows::{
     Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, GetForegroundWindow,
         GetWindowThreadProcessId, PeekMessageW, RegisterClassW, HWND_MESSAGE, MSG, PM_REMOVE,
-        WM_CLIPBOARDUPDATE, WM_DESTROY, WNDCLASSW,
+        WNDCLASSW,
     },
 };
 
@@ -77,51 +77,51 @@ impl ClipboardListener {
                 let mut last_captured_img_len = 0;
 
                 let mut msg = MSG::default();
-                while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE).as_bool()
-                    || get_message_w_blocking(&mut msg)
-                {
-                    if msg.message == WM_CLIPBOARDUPDATE {
-                        let source_app = get_active_app_name();
-
-                        // Check text first
-                        if let Some(text) = read_clipboard_text() {
-                            if !text.is_empty() && text != last_captured_text {
-                                last_captured_text = text.clone();
-                                let _ = tx.send(RawClipEvent {
-                                    content: text,
-                                    source_app: source_app.clone(),
-                                    is_image: false,
-                                });
-                            }
-                        } else if let Some(img_data) = read_clipboard_image() {
-                            if img_data.len() != last_captured_img_len {
-                                last_captured_img_len = img_data.len();
-                                let _ = tx.send(RawClipEvent {
-                                    content: img_data,
-                                    source_app: source_app.clone(),
-                                    is_image: true,
-                                });
-                            }
-                        }
-                    } else if msg.message == WM_DESTROY {
-                        let _ = RemoveClipboardFormatListener(hwnd);
-                        break;
+                loop {
+                    while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE).as_bool() {
+                        let _ = windows::Win32::UI::WindowsAndMessaging::TranslateMessage(&msg);
+                        windows::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
                     }
+
+                    if let Some(text) = read_clipboard_text() {
+                        if !text.is_empty() && text != last_captured_text {
+                            last_captured_text = text.clone();
+                            let source_app = get_active_app_name();
+                            let _ = tx.send(RawClipEvent {
+                                content: text,
+                                source_app,
+                                is_image: false,
+                            });
+                        }
+                    } else if let Some(img_data) = read_clipboard_image() {
+                        if img_data.len() != last_captured_img_len {
+                            last_captured_img_len = img_data.len();
+                            let source_app = get_active_app_name();
+                            let _ = tx.send(RawClipEvent {
+                                content: img_data,
+                                source_app,
+                                is_image: true,
+                            });
+                        }
+                    }
+
+                    thread::sleep(std::time::Duration::from_millis(150));
                 }
             }
 
             #[cfg(not(windows))]
             {
-                if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                    let mut last_captured_text = String::new();
-                    let mut last_captured_img_len = 0;
-                    loop {
-                        thread::sleep(std::time::Duration::from_millis(100));
-                        let source_app = get_active_app_name();
+                let mut last_captured_text = String::new();
+                let mut last_captured_img_len = 0;
 
+                loop {
+                    thread::sleep(std::time::Duration::from_millis(200));
+
+                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
                         if let Ok(text) = clipboard.get_text() {
                             if !text.is_empty() && text != last_captured_text {
                                 last_captured_text = text.clone();
+                                let source_app = get_active_app_name();
                                 let _ = tx.send(RawClipEvent {
                                     content: text,
                                     source_app,
@@ -132,6 +132,7 @@ impl ClipboardListener {
                             if image.bytes.len() != last_captured_img_len && !image.bytes.is_empty() {
                                 last_captured_img_len = image.bytes.len();
                                 let bmp_base64 = rgba_to_bmp_base64(&image);
+                                let source_app = get_active_app_name();
                                 let _ = tx.send(RawClipEvent {
                                     content: bmp_base64,
                                     source_app,
@@ -144,11 +145,6 @@ impl ClipboardListener {
             }
         });
     }
-}
-
-#[cfg(windows)]
-unsafe fn get_message_w_blocking(msg: *mut MSG) -> bool {
-    windows::Win32::UI::WindowsAndMessaging::GetMessageW(msg, HWND::default(), 0, 0).as_bool()
 }
 
 #[cfg(windows)]

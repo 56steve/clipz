@@ -130,6 +130,7 @@ class ClipzApp {
       case 'pill':
         this.isExpanded = false;
         this.closeSettingsPanel();
+        void this.notchShell.offsetWidth;
         this.notchShell.classList.remove('state-preview', 'state-expanded', 'expanded');
         this.notchShell.classList.add('state-pill', 'collapsed');
         this.searchInput.blur();
@@ -148,6 +149,7 @@ class ClipzApp {
         try {
           await invoke('show_preview_notch');
         } catch (_) {}
+        void this.notchShell.offsetWidth;
         requestAnimationFrame(() => {
           this.notchShell.classList.remove('state-pill', 'state-expanded', 'expanded');
           this.notchShell.classList.add('state-preview', 'collapsed');
@@ -159,6 +161,7 @@ class ClipzApp {
         try {
           await invoke('expand_window');
         } catch (_) {}
+        void this.notchShell.offsetWidth;
         requestAnimationFrame(() => {
           this.notchShell.classList.remove('state-pill', 'state-preview', 'collapsed');
           this.notchShell.classList.add('state-expanded', 'expanded');
@@ -222,6 +225,20 @@ class ClipzApp {
           this.setNotchState('pill');
         }
       }, 350);
+    });
+
+    // Collapse back to micro-pill when expanded window loses focus (e.g. clicking background anywhere on screen or another app)
+    window.addEventListener('blur', () => {
+      if (this.currentState === 'expanded') {
+        this.setNotchState('pill');
+      }
+    });
+
+    // Collapse back to micro-pill when clicking on background outside notch shell
+    document.addEventListener('click', (e: MouseEvent) => {
+      if (!this.notchShell.contains(e.target as Node) && this.currentState === 'expanded') {
+        this.setNotchState('pill');
+      }
     });
 
     // Settings Panel Event Listeners
@@ -325,8 +342,11 @@ class ClipzApp {
       } else if (e.key === 'Enter' && this.selectedIndex >= 0) {
         e.preventDefault();
         const visibleClips = this.getFilteredClips();
-        if (visibleClips[this.selectedIndex]) {
-          this.copyClip(visibleClips[this.selectedIndex]);
+        const targetClip = visibleClips[this.selectedIndex];
+        if (targetClip) {
+          const cardEl = this.clipsContainer.querySelector(`[data-id="${targetClip.id}"]`);
+          const copyBtnEl = cardEl ? (cardEl.querySelector('.copy-btn') as HTMLButtonElement) : undefined;
+          this.copyClip(targetClip, false, copyBtnEl);
         }
       }
     });
@@ -334,9 +354,11 @@ class ClipzApp {
 
   private async initTauriListeners() {
     try {
-      // Listen for real-time clipboard captures from Win32 backend stream
+      // Listen for real-time clipboard captures
       await listen<ClipItem>('new-clip', (event) => {
         const item = event.payload;
+        // Filter out existing clip with matching ID to prevent duplicate items
+        this.clips = this.clips.filter((c) => c.id !== item.id);
         this.clips.unshift(item);
         this.updatePillPreview(item);
         this.renderClips();
@@ -359,6 +381,13 @@ class ClipzApp {
       // Listen for global Alt + C hotkey
       await listen('toggle-notch-hotkey', () => {
         this.toggleExpand();
+      });
+
+      // Listen for window blur event from Tauri native window manager
+      await listen('tauri://blur', () => {
+        if (this.currentState === 'expanded') {
+          this.setNotchState('pill');
+        }
       });
 
       // Listen for paste tracking events
@@ -580,17 +609,17 @@ class ClipzApp {
 
   private updatePillPreview(item: ClipItem) {
     if (item.is_sensitive) {
-      this.streamText.textContent = `🔒 Sensitive data captured from ${item.source_app}`;
+      this.streamText.innerHTML = `<span class="green-check">✓</span> 🔒 Sensitive data captured from ${this.escapeHTML(item.source_app)}`;
     } else if (item.category === 'image') {
       const cleanApp = item.source_app && item.source_app !== 'Unknown App'
         ? item.source_app.replace(/\.exe$/i, '')
         : 'Screenshot';
       const date = new Date(item.created_at * 1000);
       const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      this.streamText.textContent = `🖼️ Screenshot captured from ${cleanApp} (${timeStr})`;
+      this.streamText.innerHTML = `<span class="green-check">✓</span> 🖼️ Screenshot captured from ${this.escapeHTML(cleanApp)} (${timeStr})`;
     } else {
       const preview = item.content.length > 40 ? item.content.slice(0, 40) + '...' : item.content;
-      this.streamText.textContent = `${item.source_app}: "${preview}"`;
+      this.streamText.innerHTML = `<span class="green-check">✓</span> ${this.escapeHTML(item.source_app)}: "${this.escapeHTML(preview)}"`;
     }
   }
 
@@ -746,7 +775,7 @@ class ClipzApp {
         copyBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           e.stopImmediatePropagation();
-          if (clip) this.copyClip(clip, false);
+          if (clip) this.copyClip(clip, false, copyBtn as HTMLButtonElement);
         });
       }
 
@@ -856,14 +885,24 @@ class ClipzApp {
     this.deleteModal.classList.remove('hidden');
   }
 
-  private async copyClip(clip: ClipItem, autoPaste: boolean = false) {
+  private async copyClip(clip: ClipItem, autoPaste: boolean = false, btnElement?: HTMLButtonElement) {
     try {
+      if (btnElement) {
+        const origHTML = btnElement.innerHTML;
+        btnElement.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+        btnElement.classList.add('copied-success');
+        setTimeout(() => {
+          btnElement.innerHTML = origHTML;
+          btnElement.classList.remove('copied-success');
+        }, 1800);
+      }
+
       await invoke('copy_to_clipboard', {
         id: clip.id,
         content: clip.content,
         auto_paste: autoPaste,
       });
-      this.streamText.textContent = autoPaste ? `Pasted into active app!` : `Copied to clipboard!`;
+      this.streamText.innerHTML = `<span class="green-check">✓</span> ${autoPaste ? 'Pasted into active app!' : 'Copied to clipboard!'}`;
       setTimeout(() => this.updatePillPreview(clip), 2000);
     } catch (err) {
       console.error('Failed to copy clip:', err);
