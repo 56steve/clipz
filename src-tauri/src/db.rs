@@ -14,6 +14,7 @@ pub struct ClipItem {
     pub is_pinned: bool,
     pub created_at: i64,
     pub paste_count: u32,
+    pub reminder_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,7 +54,8 @@ impl DatabaseManager {
                 is_sensitive INTEGER NOT NULL DEFAULT 0,
                 is_pinned INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
-                paste_count INTEGER NOT NULL DEFAULT 0
+                paste_count INTEGER NOT NULL DEFAULT 0,
+                reminder_at INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS paste_logs (
@@ -90,6 +92,9 @@ impl DatabaseManager {
             );
         ")?;
 
+        // Migration for existing databases: ensure reminder_at column exists
+        let _ = conn.execute("ALTER TABLE clips ADD COLUMN reminder_at INTEGER;", []);
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -98,8 +103,8 @@ impl DatabaseManager {
     pub fn insert_clip(&self, clip: &ClipItem) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO clips (id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT OR REPLACE INTO clips (id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count, reminder_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 clip.id,
                 clip.content,
@@ -108,7 +113,8 @@ impl DatabaseManager {
                 if clip.is_sensitive { 1 } else { 0 },
                 if clip.is_pinned { 1 } else { 0 },
                 clip.created_at,
-                clip.paste_count
+                clip.paste_count,
+                clip.reminder_at
             ],
         )?;
         Ok(())
@@ -117,7 +123,7 @@ impl DatabaseManager {
     pub fn get_recent_clips(&self, limit: usize) -> Result<Vec<ClipItem>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count
+            "SELECT id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count, reminder_at
              FROM clips ORDER BY is_pinned DESC, created_at DESC LIMIT ?1",
         )?;
 
@@ -133,6 +139,7 @@ impl DatabaseManager {
                 is_pinned: pinned_int != 0,
                 created_at: row.get(6)?,
                 paste_count: row.get(7)?,
+                reminder_at: row.get(8)?,
             })
         })?;
 
@@ -156,7 +163,7 @@ impl DatabaseManager {
         let fts_query = format!("\"{}\"*", sanitized_fts);
 
         let fts_res = conn.prepare(
-            "SELECT c.id, c.content, c.source_app, c.category, c.is_sensitive, c.is_pinned, c.created_at, c.paste_count
+            "SELECT c.id, c.content, c.source_app, c.category, c.is_sensitive, c.is_pinned, c.created_at, c.paste_count, c.reminder_at
              FROM clips c
              JOIN clips_fts fts ON c.id = fts.id
              WHERE clips_fts MATCH ?1
@@ -177,6 +184,7 @@ impl DatabaseManager {
                     is_pinned: pinned_int != 0,
                     created_at: row.get(6)?,
                     paste_count: row.get(7)?,
+                    reminder_at: row.get(8)?,
                 })
             });
 
@@ -196,7 +204,7 @@ impl DatabaseManager {
         // 2. Fallback Substring Search (handles URLs, symbols, code snippets, etc.)
         let like_param = format!("%{}%", clean_query);
         let mut fallback_stmt = conn.prepare(
-            "SELECT id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count
+            "SELECT id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count, reminder_at
              FROM clips
              WHERE content LIKE ?1 OR source_app LIKE ?1
              ORDER BY is_pinned DESC, created_at DESC
@@ -215,6 +223,7 @@ impl DatabaseManager {
                 is_pinned: pinned_int != 0,
                 created_at: row.get(6)?,
                 paste_count: row.get(7)?,
+                reminder_at: row.get(8)?,
             })
         })?;
 
@@ -228,7 +237,6 @@ impl DatabaseManager {
     pub fn delete_clip(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let _ = conn.execute("DELETE FROM paste_logs WHERE clip_id = ?1", params![id]);
-        let _ = conn.execute("DELETE FROM clips_fts WHERE id = ?1", params![id]);
         let _ = conn.execute("DELETE FROM clips WHERE id = ?1", params![id]);
         Ok(())
     }
@@ -246,6 +254,16 @@ impl DatabaseManager {
             params![new_state, id],
         )?;
         Ok(new_state != 0)
+    }
+
+    pub fn set_clip_reminder(&self, id: &str, reminder_at: Option<i64>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute("ALTER TABLE clips ADD COLUMN reminder_at INTEGER;", []);
+        conn.execute(
+            "UPDATE clips SET reminder_at = ?1 WHERE id = ?2",
+            params![reminder_at, id],
+        )?;
+        Ok(())
     }
 
     pub fn increment_paste(&self, id: &str) -> Result<()> {
@@ -317,6 +335,14 @@ impl DatabaseManager {
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
             params![key, value],
         )?;
+        Ok(())
+    }
+
+    pub fn clear_all_clips(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let _ = conn.execute("DELETE FROM paste_logs", []);
+        let _ = conn.execute("DELETE FROM clips", []);
+        let _ = conn.execute("DELETE FROM settings", []);
         Ok(())
     }
 }

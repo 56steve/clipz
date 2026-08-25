@@ -23,6 +23,9 @@
         <span class="stream-text" id="stream-text">Listening for copied clips...</span>
       </div>
       <div class="pill-actions">
+        <button id="notch-reminders-btn" class="icon-btn header-alarm-btn" title="Scheduled Reminders">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+        </button>
         <button id="toggle-expand-btn" class="icon-btn" title="Toggle Expand (Alt+C)">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
@@ -112,6 +115,9 @@
                   <button id="reset-hotkey-btn" class="shortcut-icon-btn" title="Reset default">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                   </button>
+                  <button id="disable-hotkey-btn" class="shortcut-icon-btn" title="Disable shortcut">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                  </button>
                   <button id="clear-hotkey-btn" class="shortcut-icon-btn" title="Clear hotkey">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                   </button>
@@ -134,6 +140,20 @@
           <div class="settings-footer-note">
             <span id="default-shortcut-hint">Default: <code>Alt + C</code> (Windows) &bull; <code>Cmd + Shift + C</code> (macOS)</span>
           </div>
+
+          <div class="settings-section-title" style="margin-top: 16px;">APPLICATION MANAGEMENT</div>
+          <div class="setting-card danger-card">
+            <div class="setting-card-row">
+              <div class="setting-card-info">
+                <div class="setting-card-title text-danger">Disable & Uninstall Clipz</div>
+                <div class="setting-card-sub">Stop background services, clean autostart entries, and exit app</div>
+              </div>
+              <button id="uninstall-btn" class="btn btn-danger-outline">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px;"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                <span>Disable / Uninstall</span>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -150,6 +170,59 @@
         </div>
       </footer>
     </main>
+
+    <!-- Paste History Modal Overlay -->
+    <div id="history-modal" class="modal-overlay hidden">
+      <div class="modal-content history-modal-content">
+        <div class="modal-header">
+          <h3>📜 Paste History</h3>
+          <button id="close-modal-btn" class="icon-btn">&times;</button>
+        </div>
+        <div class="modal-body" id="history-list"></div>
+      </div>
+    </div>
+
+    <!-- Set Clip Reminder Modal Overlay -->
+    <div id="reminder-modal" class="modal-overlay hidden">
+      <div class="modal-content reminder-modal-content">
+        <div class="modal-header">
+          <h3>⏰ Set Clip Reminder</h3>
+          <button id="close-reminder-modal-btn" class="icon-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="reminder-clip-preview" class="reminder-clip-preview"></div>
+          <div class="reminder-time-section">
+            <label for="reminder-datetime-input" class="reminder-label">Select Date & Time:</label>
+            <input type="datetime-local" id="reminder-datetime-input" class="reminder-datetime-input" />
+          </div>
+          <div class="reminder-presets">
+            <span class="preset-label">Quick options:</span>
+            <div class="preset-buttons">
+              <button class="preset-btn" data-preset="15m">+15 Min</button>
+              <button class="preset-btn" data-preset="1h">+1 Hour</button>
+              <button class="preset-btn" data-preset="4h">+4 Hours</button>
+              <button class="preset-btn" data-preset="tomorrow">Tomorrow 9 AM</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="clear-reminder-btn" class="btn btn-danger-outline hidden">Clear Reminder</button>
+          <button id="cancel-reminder-btn" class="btn btn-secondary">Cancel</button>
+          <button id="save-reminder-btn" class="btn btn-primary">Set Reminder</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scheduled Reminders Manager Modal Overlay -->
+    <div id="reminders-list-modal" class="modal-overlay hidden">
+      <div class="modal-content reminders-list-modal-content">
+        <div class="modal-header">
+          <h3>⏰ Scheduled Reminders</h3>
+          <button id="close-reminders-list-modal-btn" class="icon-btn">&times;</button>
+        </div>
+        <div class="modal-body" id="reminders-manager-list"></div>
+      </div>
+    </div>
 
     <!-- Delete Confirmation Modal Overlay -->
     <div id="delete-modal" class="modal-overlay hidden">
@@ -171,9 +244,59 @@
 
     <!-- Image Lightbox Modal -->
     <div id="image-lightbox" class="lightbox-overlay hidden">
+      <button id="lightbox-info-btn" class="lightbox-info-btn" title="Clip Information (i)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      </button>
       <button id="close-lightbox-btn" class="lightbox-close" title="Close Preview">&times;</button>
       <div class="lightbox-container">
         <img id="lightbox-img" class="lightbox-img" alt="Full Image Preview" />
+        <div id="lightbox-info-card" class="lightbox-info-card hidden">
+          <div class="info-card-header">
+            <h4>ℹ️ Image Details</h4>
+            <button id="close-lightbox-info-btn" class="icon-btn">&times;</button>
+          </div>
+          <div class="info-card-body">
+            <div class="info-item">
+              <span class="info-label">Captured From:</span>
+              <span id="lb-info-app" class="info-value"></span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Captured Date:</span>
+              <span id="lb-info-date" class="info-value"></span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Resolution:</span>
+              <span id="lb-info-dim" class="info-value"></span>
+            </div>
+            <div class="info-item">
+              <span class="info-label">Times Pasted:</span>
+              <span id="lb-info-pastes" class="info-value"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Uninstall / Disable Confirmation Modal Overlay -->
+    <div id="uninstall-modal" class="modal-overlay hidden">
+      <div class="modal-content delete-modal-content">
+        <div class="modal-header">
+          <h3>⚠️ Disable & Uninstall Clipz</h3>
+          <button id="close-uninstall-modal-btn" class="icon-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="delete-warning-text">This will stop all background clipboard services, unregister global hotkeys, and remove startup entries from your system.</p>
+          <div class="uninstall-option-box" style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" id="clean-db-checkbox" style="cursor: pointer;" />
+            <label for="clean-db-checkbox" style="font-size: 12px; color: var(--text-dim); cursor: pointer;">
+              Also delete all saved clips history and local database
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="cancel-uninstall-btn" class="btn btn-secondary">Cancel</button>
+          <button id="confirm-uninstall-btn" class="btn btn-danger">Confirm & Uninstall</button>
+        </div>
       </div>
     </div>
   </div>
