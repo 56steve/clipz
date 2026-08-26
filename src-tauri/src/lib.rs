@@ -547,6 +547,19 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_shadow(false);
                 initial_center_position(&window, 130.0, 36.0);
+
+                #[cfg(target_os = "macos")]
+                {
+                    use cocoa::base::{id, nil};
+                    use cocoa::foundation::NSString;
+                    use objc::{msg_send, sel, sel_impl, class};
+                    let _ = window.with_webview(|webview| unsafe {
+                        let ns_view: id = webview.inner() as id;
+                        let key = NSString::alloc(nil).init_str("drawsBackground");
+                        let no: id = msg_send![class!(NSNumber), numberWithBool: false];
+                        let _: () = msg_send![ns_view, setValue: no forKey: key];
+                    });
+                }
             }
 
             // 5. System Tray Icon Setup
