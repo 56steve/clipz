@@ -11,6 +11,7 @@ interface ClipItem {
   is_pinned: bool;
   created_at: number;
   paste_count: number;
+  reminder_at?: number | null;
 }
 
 interface PasteLogItem {
@@ -36,6 +37,23 @@ class ClipzApp {
   private historyList: HTMLElement;
   private closeModalBtn: HTMLElement;
 
+  private reminderModal: HTMLElement;
+  private reminderClipPreview: HTMLElement;
+  private reminderDatetimeInput: HTMLInputElement;
+  private closeReminderModalBtn: HTMLElement;
+  private cancelReminderBtn: HTMLElement;
+  private saveReminderBtn: HTMLElement;
+  private clearReminderBtn: HTMLElement;
+
+  private notchRemindersBtn: HTMLElement;
+  private remindersListModal: HTMLElement;
+  private remindersManagerList: HTMLElement;
+  private closeRemindersListModalBtn: HTMLElement;
+
+  private activeReminderClipId: string | null = null;
+  private triggeredReminderIds: Set<string> = new Set();
+  private reminderCheckInterval: any = null;
+
   private deleteModal: HTMLElement;
   private deleteClipPreview: HTMLElement;
   private closeDeleteModalBtn: HTMLElement;
@@ -45,6 +63,14 @@ class ClipzApp {
   private imageLightbox: HTMLElement;
   private lightboxImg: HTMLImageElement;
   private closeLightboxBtn: HTMLElement;
+  private lightboxInfoBtn: HTMLElement;
+  private lightboxInfoCard: HTMLElement;
+  private closeLightboxInfoBtn: HTMLElement;
+  private lbInfoApp: HTMLElement;
+  private lbInfoDate: HTMLElement;
+  private lbInfoDim: HTMLElement;
+  private lbInfoPastes: HTMLElement;
+  private activeLightboxClip: ClipItem | null = null;
 
   private searchSection: HTMLElement;
   private timelineSection: HTMLElement;
@@ -55,6 +81,13 @@ class ClipzApp {
   private keycapDisplay: HTMLElement;
   private saveIndicator: HTMLElement;
   private resetHotkeyBtn: HTMLElement;
+  private disableHotkeyBtn: HTMLElement;
+  private uninstallBtn: HTMLElement;
+  private uninstallModal: HTMLElement;
+  private closeUninstallModalBtn: HTMLElement;
+  private cancelUninstallBtn: HTMLElement;
+  private confirmUninstallBtn: HTMLElement;
+  private cleanDbCheckbox: HTMLInputElement;
   private osPlatformBadge: HTMLElement;
   private shortcutBadge: HTMLElement;
   private currentShortcut: string = 'Alt+C';
@@ -73,6 +106,7 @@ class ClipzApp {
   private dragStartTime: number = 0;
   private dragStartX: number = 0;
   private dragStartY: number = 0;
+  private isDraggingWindow: boolean = false;
 
   constructor() {
     this.notchShell = document.getElementById('notch-shell')!;
@@ -91,6 +125,19 @@ class ClipzApp {
     this.historyList = document.getElementById('history-list')!;
     this.closeModalBtn = document.getElementById('close-modal-btn')!;
 
+    this.reminderModal = document.getElementById('reminder-modal')!;
+    this.reminderClipPreview = document.getElementById('reminder-clip-preview')!;
+    this.reminderDatetimeInput = document.getElementById('reminder-datetime-input') as HTMLInputElement;
+    this.closeReminderModalBtn = document.getElementById('close-reminder-modal-btn')!;
+    this.cancelReminderBtn = document.getElementById('cancel-reminder-btn')!;
+    this.saveReminderBtn = document.getElementById('save-reminder-btn')!;
+    this.clearReminderBtn = document.getElementById('clear-reminder-btn')!;
+
+    this.notchRemindersBtn = document.getElementById('notch-reminders-btn')!;
+    this.remindersListModal = document.getElementById('reminders-list-modal')!;
+    this.remindersManagerList = document.getElementById('reminders-manager-list')!;
+    this.closeRemindersListModalBtn = document.getElementById('close-reminders-list-modal-btn')!;
+
     this.deleteModal = document.getElementById('delete-modal')!;
     this.deleteClipPreview = document.getElementById('delete-clip-preview')!;
     this.closeDeleteModalBtn = document.getElementById('close-delete-modal-btn')!;
@@ -100,6 +147,13 @@ class ClipzApp {
     this.imageLightbox = document.getElementById('image-lightbox')!;
     this.lightboxImg = document.getElementById('lightbox-img') as HTMLImageElement;
     this.closeLightboxBtn = document.getElementById('close-lightbox-btn')!;
+    this.lightboxInfoBtn = document.getElementById('lightbox-info-btn')!;
+    this.lightboxInfoCard = document.getElementById('lightbox-info-card')!;
+    this.closeLightboxInfoBtn = document.getElementById('close-lightbox-info-btn')!;
+    this.lbInfoApp = document.getElementById('lb-info-app')!;
+    this.lbInfoDate = document.getElementById('lb-info-date')!;
+    this.lbInfoDim = document.getElementById('lb-info-dim')!;
+    this.lbInfoPastes = document.getElementById('lb-info-pastes')!;
 
     this.settingsPanel = document.getElementById('settings-panel')!;
     this.settingsBtn = document.getElementById('settings-btn')!;
@@ -108,12 +162,20 @@ class ClipzApp {
     this.keycapDisplay = document.getElementById('keycap-display')!;
     this.saveIndicator = document.getElementById('save-indicator')!;
     this.resetHotkeyBtn = document.getElementById('reset-hotkey-btn')!;
+    this.disableHotkeyBtn = document.getElementById('disable-hotkey-btn')!;
+    this.uninstallBtn = document.getElementById('uninstall-btn')!;
+    this.uninstallModal = document.getElementById('uninstall-modal')!;
+    this.closeUninstallModalBtn = document.getElementById('close-uninstall-modal-btn')!;
+    this.cancelUninstallBtn = document.getElementById('cancel-uninstall-btn')!;
+    this.confirmUninstallBtn = document.getElementById('confirm-uninstall-btn')!;
+    this.cleanDbCheckbox = document.getElementById('clean-db-checkbox') as HTMLInputElement;
     this.osPlatformBadge = document.getElementById('os-platform-badge')!;
 
     this.initEventListeners();
     this.loadClips();
     this.initTauriListeners();
     this.loadSettings();
+    this.initReminderScheduler();
 
     // Start directly as the ultra-compact micro-pill
     this.setNotchState('pill');
@@ -121,15 +183,37 @@ class ClipzApp {
 
   private collapseWindowTimer: any = null;
 
+  private closeAllModals() {
+    if (this.historyModal) this.historyModal.classList.add('hidden');
+    if (this.reminderModal) this.reminderModal.classList.add('hidden');
+    if (this.remindersListModal) this.remindersListModal.classList.add('hidden');
+    if (this.deleteModal) this.deleteModal.classList.add('hidden');
+    if (this.imageLightbox) this.imageLightbox.classList.add('hidden');
+    if (this.uninstallModal) this.uninstallModal.classList.add('hidden');
+  }
+
+  private isAnyModalOpen(): boolean {
+    return (
+      (!!this.historyModal && !this.historyModal.classList.contains('hidden')) ||
+      (!!this.reminderModal && !this.reminderModal.classList.contains('hidden')) ||
+      (!!this.remindersListModal && !this.remindersListModal.classList.contains('hidden')) ||
+      (!!this.deleteModal && !this.deleteModal.classList.contains('hidden')) ||
+      (!!this.imageLightbox && !this.imageLightbox.classList.contains('hidden')) ||
+      (!!this.uninstallModal && !this.uninstallModal.classList.contains('hidden'))
+    );
+  }
+
   private async setNotchState(state: 'pill' | 'preview' | 'expanded') {
     this.currentState = state;
     clearTimeout(this.previewTimer);
     clearTimeout(this.collapseWindowTimer);
+    clearTimeout(this.hoverCollapseTimer);
 
     switch (state) {
       case 'pill':
         this.isExpanded = false;
         this.closeSettingsPanel();
+        this.closeAllModals();
         void this.notchShell.offsetWidth;
         this.notchShell.classList.remove('state-preview', 'state-expanded', 'expanded');
         this.notchShell.classList.add('state-pill', 'collapsed');
@@ -176,32 +260,63 @@ class ClipzApp {
   }
 
   private initEventListeners() {
-    this.notchHeader.addEventListener('mousedown', async (e) => {
+    this.notchHeader.addEventListener('mousedown', (e) => {
       // Don't trigger window drag if clicking action buttons or filter elements
       if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
       if (e.button === 0) {
+        this.isDraggingWindow = false;
         this.dragStartTime = Date.now();
         this.dragStartX = e.screenX;
         this.dragStartY = e.screenY;
-        try {
-          await invoke('start_dragging');
-        } catch (_) {
-          try {
-            await getCurrentWindow().startDragging();
-          } catch (_) {}
-        }
+
+        const handleMouseMove = async (moveEvt: MouseEvent) => {
+          if (!this.isDraggingWindow && moveEvt.buttons === 1) {
+            const moveDist = Math.hypot(moveEvt.screenX - this.dragStartX, moveEvt.screenY - this.dragStartY);
+            if (moveDist > 5) {
+              this.isDraggingWindow = true;
+              try {
+                await invoke('start_dragging');
+              } catch (_) {
+                try {
+                  await getCurrentWindow().startDragging();
+                } catch (_) {}
+              }
+            }
+          }
+        };
+
+        const handleMouseUp = () => {
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
       }
     });
 
     this.notchHeader.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
-      // If mouse moved or was held for drag gesture, do not toggle expand
+      if (this.isDraggingWindow) return;
       const dragDuration = Date.now() - this.dragStartTime;
       const moveDist = Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY);
-      if (dragDuration > 200 || moveDist > 5) {
+      if (dragDuration > 300 || moveDist > 5) {
         return;
       }
+      this.stopPillBounce();
       this.toggleExpand();
+    });
+
+    this.notchShell.addEventListener('click', (e) => {
+      this.stopPillBounce();
+      if (this.currentState === 'pill') {
+        if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
+        if (this.isDraggingWindow) return;
+        const dragDuration = Date.now() - this.dragStartTime;
+        const moveDist = Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY);
+        if (dragDuration > 300 || moveDist > 5) return;
+        this.setNotchState('expanded');
+      }
     });
 
     const toggleExpandBtn = document.getElementById('toggle-expand-btn');
@@ -209,6 +324,16 @@ class ClipzApp {
       toggleExpandBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.toggleExpand();
+      });
+    }
+
+    if (this.notchRemindersBtn) {
+      this.notchRemindersBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.currentState !== 'expanded') {
+          this.setNotchState('expanded');
+        }
+        this.openRemindersListModal();
       });
     }
 
@@ -221,7 +346,7 @@ class ClipzApp {
     this.notchShell.addEventListener('mouseleave', () => {
       clearTimeout(this.hoverCollapseTimer);
       this.hoverCollapseTimer = setTimeout(() => {
-        if (this.currentState === 'expanded' && this.historyModal.classList.contains('hidden')) {
+        if (this.currentState === 'expanded' && !this.isAnyModalOpen()) {
           this.setNotchState('pill');
         }
       }, 350);
@@ -229,14 +354,14 @@ class ClipzApp {
 
     // Collapse back to micro-pill when expanded window loses focus (e.g. clicking background anywhere on screen or another app)
     window.addEventListener('blur', () => {
-      if (this.currentState === 'expanded') {
+      if (this.currentState === 'expanded' && !this.isAnyModalOpen()) {
         this.setNotchState('pill');
       }
     });
 
     // Collapse back to micro-pill when clicking on background outside notch shell
     document.addEventListener('click', (e: MouseEvent) => {
-      if (!this.notchShell.contains(e.target as Node) && this.currentState === 'expanded') {
+      if (!this.notchShell.contains(e.target as Node) && this.currentState === 'expanded' && !this.isAnyModalOpen()) {
         this.setNotchState('pill');
       }
     });
@@ -254,6 +379,27 @@ class ClipzApp {
         this.closeSettingsPanel();
       });
     }
+    if (this.lightboxInfoBtn) {
+      this.lightboxInfoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.lightboxInfoCard) {
+          const isHidden = this.lightboxInfoCard.classList.toggle('hidden');
+          if (this.lightboxInfoBtn) {
+            if (!isHidden) this.lightboxInfoBtn.classList.add('active');
+            else this.lightboxInfoBtn.classList.remove('active');
+          }
+        }
+      });
+    }
+
+    if (this.closeLightboxInfoBtn) {
+      this.closeLightboxInfoBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.lightboxInfoCard) this.lightboxInfoCard.classList.add('hidden');
+        if (this.lightboxInfoBtn) this.lightboxInfoBtn.classList.remove('active');
+      });
+    }
+
     if (this.keycapContainer) {
       this.keycapContainer.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -270,7 +416,13 @@ class ClipzApp {
     if (clearHotkeyBtn) {
       clearHotkeyBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.saveHotkey('');
+        this.saveHotkey('Disabled');
+      });
+    }
+    if (this.disableHotkeyBtn) {
+      this.disableHotkeyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.saveHotkey('Disabled');
       });
     }
     const saveHotkeyBtn = document.getElementById('save-hotkey-btn');
@@ -302,6 +454,42 @@ class ClipzApp {
       });
     }
 
+    if (this.uninstallBtn) {
+      this.uninstallBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.uninstallModal) {
+          this.uninstallModal.classList.remove('hidden');
+        }
+      });
+    }
+    if (this.closeUninstallModalBtn) {
+      this.closeUninstallModalBtn.addEventListener('click', () => {
+        if (this.uninstallModal) this.uninstallModal.classList.add('hidden');
+      });
+    }
+    if (this.cancelUninstallBtn) {
+      this.cancelUninstallBtn.addEventListener('click', () => {
+        if (this.uninstallModal) this.uninstallModal.classList.add('hidden');
+      });
+    }
+    if (this.confirmUninstallBtn) {
+      this.confirmUninstallBtn.addEventListener('click', async () => {
+        const cleanData = this.cleanDbCheckbox ? this.cleanDbCheckbox.checked : false;
+        try {
+          await invoke('disable_and_uninstall_app', { cleanData });
+        } catch (err) {
+          console.error('Failed to disable/uninstall app:', err);
+        }
+      });
+    }
+    if (this.uninstallModal) {
+      this.uninstallModal.addEventListener('click', (e) => {
+        if (e.target === this.uninstallModal) {
+          this.uninstallModal.classList.add('hidden');
+        }
+      });
+    }
+
     // Search input handler with FTS5 debounce
     this.searchInput.addEventListener('input', () => {
       clearTimeout(this.searchDebounceTimer);
@@ -328,7 +516,9 @@ class ClipzApp {
         return;
       }
       if (e.key === 'Escape') {
-        if (!this.settingsPanel.classList.contains('hidden')) {
+        if (this.isAnyModalOpen()) {
+          this.closeAllModals();
+        } else if (!this.settingsPanel.classList.contains('hidden')) {
           this.closeSettingsPanel();
         } else {
           this.setNotchState('pill');
@@ -420,12 +610,14 @@ class ClipzApp {
 
   private async loadSettings() {
     try {
-      const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
+      const isMac = /Mac|iPod|iPhone|iPad|Darwin/.test(navigator.userAgent) ||
+                    /Mac/.test(navigator.platform) ||
+                    (navigator as any).userAgentData?.platform === 'macOS';
       if (this.osPlatformBadge) {
         if (isMac) {
-          this.osPlatformBadge.innerHTML = `<svg width="11" height="11" viewBox="0 0 170 170" fill="#ffffff" style="margin-right:5px;"><path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.34.13-9.16-1.9-14.49-6.1-3.26-2.64-7.14-7.27-11.64-13.9-6.85-10.09-12.35-21.2-16.5-33.32-4.14-12.13-6.22-23.75-6.22-34.86 0-14.54 3.73-26.65 11.19-36.33 7.46-9.68 16.73-14.65 27.81-14.9 5.35 0 11.05 1.34 17.1 4.02 6.05 2.68 10.3 4.02 12.74 4.02 2.18 0 6.46-1.39 12.86-4.17 6.4-2.78 11.83-4.04 16.29-3.78 12.01.63 21.7 5.1 29.08 13.41-10.74 6.53-15.99 15.54-15.74 27.03.25 9.05 3.76 16.59 10.53 22.63 6.77 6.04 14.88 9.53 24.32 10.48-2.52 7.42-5.91 14.85-10.18 22.31zM119.22 31.09c0-6.79 2.5-13.34 7.51-19.65 5.01-6.31 11.31-10.34 18.9-12.09.25 1.13.38 2.14.38 3.02 0 6.66-2.56 13.19-7.68 19.58-5.12 6.4-11.41 10.45-18.87 12.16-.06-1.01-.24-2.02-.24-3.02z"/></svg><span style="color:#ffffff;">macOS</span>`;
+          this.osPlatformBadge.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="#ffffff" style="margin-right:5px; vertical-align:-1px; display:inline-block;"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.32c.67-.82 1.13-1.96.99-3.11-1 .04-2.19.67-2.88 1.48-.62.72-1.15 1.88-.99 3.01 1.12.09 2.22-.56 2.88-1.38z"/></svg><span style="color:#ffffff; font-weight:600;">macOS</span>`;
         } else {
-          this.osPlatformBadge.innerHTML = `<svg width="11" height="11" viewBox="0 0 88 88" style="margin-right:5px;"><path d="M0 12.402l35.687-4.86.016 34.423-35.67.202zm35.67 33.329l.029 34.502L0 75.312V45.928zm4.357-38.932L88 0v41.442l-47.973.473zm47.973 39.467V88L40.027 81.258l-.017-34.786z" fill="#0078D4"/></svg><span style="color:#0078D4;">Windows</span>`;
+          this.osPlatformBadge.innerHTML = `<svg width="11" height="11" viewBox="0 0 88 88" style="margin-right:5px; vertical-align:-1px; display:inline-block;"><path d="M0 12.402l35.687-4.86.016 34.423-35.67.202zm35.67 33.329l.029 34.502L0 75.312V45.928zm4.357-38.932L88 0v41.442l-47.973.473zm47.973 39.467V88L40.027 81.258l-.017-34.786z" fill="#0078D4"/></svg><span style="color:#0078D4; font-weight:600;">Windows</span>`;
         }
       }
 
@@ -453,8 +645,8 @@ class ClipzApp {
 
     if (this.keycapContainer) this.keycapContainer.classList.remove('recording');
 
-    if (!shortcutStr || shortcutStr.trim() === '') {
-      this.keycapDisplay.innerHTML = `<span style="color: var(--text-dim); font-style: italic;">None</span>`;
+    if (!shortcutStr || shortcutStr.trim() === '' || shortcutStr.toLowerCase() === 'disabled' || shortcutStr.toLowerCase() === 'none') {
+      this.keycapDisplay.innerHTML = `<span style="color: #ef4444; font-weight: 500;">Disabled</span>`;
       return;
     }
 
@@ -574,15 +766,15 @@ class ClipzApp {
   }
 
   private async saveHotkey(shortcut: string) {
-    if (!shortcut) return;
+    const targetShortcut = shortcut.trim() || 'Disabled';
     try {
-      this.currentShortcut = shortcut;
+      this.currentShortcut = targetShortcut;
       this.isRecordingHotkey = false;
-      this.renderKeycaps(shortcut);
+      this.renderKeycaps(targetShortcut);
 
-      await invoke('save_global_shortcut', { shortcut });
+      await invoke('save_global_shortcut', { shortcut: targetShortcut });
       if (this.shortcutBadge) {
-        this.shortcutBadge.textContent = shortcut;
+        this.shortcutBadge.textContent = targetShortcut.toLowerCase() === 'disabled' ? 'Disabled' : targetShortcut;
       }
 
       if (this.saveIndicator) {
@@ -647,6 +839,7 @@ class ClipzApp {
 
   private renderClips() {
     const filtered = this.getFilteredClips();
+    this.updateHeaderReminderBadge();
     if (this.clipCount) {
       this.clipCount.textContent = `${this.clips.length} items stored`;
     }
@@ -717,6 +910,7 @@ class ClipzApp {
     const timeAgo = this.formatTimeAgo(clip.created_at);
     const iconHTML = this.getCategoryIconHTML(clip);
     const contentHTML = this.renderClipPreviewText(clip);
+    const hasActiveReminder = clip.reminder_at && clip.reminder_at * 1000 > Date.now();
 
     return `
       <div class="clip-card ${clip.is_pinned ? 'pinned' : ''} ${isSelected ? 'selected' : ''}" data-id="${clip.id}">
@@ -732,13 +926,14 @@ class ClipzApp {
             <span class="meta-dot">•</span>
             <span>${timeAgo}</span>
             ${clip.paste_count > 0 ? `<span class="meta-dot">•</span><span>Pasted ${clip.paste_count}x</span>` : ''}
+            ${clip.reminder_at ? `<span class="meta-dot">•</span><span style="color:#f59e0b;">⏰ ${new Date(clip.reminder_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>` : ''}
           </div>
         </div>
         <div class="clip-right-actions">
           ${isSelected ? '<span class="enter-badge" title="Press Enter to Copy">↵</span>' : ''}
           <div class="action-btn-group">
-            <button class="action-btn info-btn" title="View Paste History">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <button class="action-btn reminder-btn ${hasActiveReminder ? 'active-reminder' : ''}" title="${clip.reminder_at ? 'Reminder set for ' + new Date(clip.reminder_at * 1000).toLocaleString() : 'Set Reminder'}">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
             </button>
             <button class="action-btn copy-btn" title="Copy to Clipboard">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -758,16 +953,16 @@ class ClipzApp {
       const id = card.getAttribute('data-id')!;
       const clip = this.clips.find((c) => c.id === id);
 
-      const infoBtn = card.querySelector('.info-btn');
+      const reminderBtn = card.querySelector('.reminder-btn');
       const copyBtn = card.querySelector('.copy-btn');
       const deleteBtn = card.querySelector('.delete-btn');
       const revealBtn = card.querySelector('.reveal-btn');
 
-      if (infoBtn) {
-        infoBtn.addEventListener('click', (e) => {
+      if (reminderBtn) {
+        reminderBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           e.stopImmediatePropagation();
-          this.showPasteHistory(id);
+          this.openReminderModal(id);
         });
       }
 
@@ -800,8 +995,9 @@ class ClipzApp {
         if (target.closest('.action-btn') || target.closest('.reveal-btn')) {
           return;
         }
+        this.stopPillBounce();
         if (clip && clip.category === 'image') {
-          this.openLightbox(clip.content);
+          this.openLightbox(clip);
         } else if (clip) {
           const isExpanded = card.classList.toggle('expanded-text');
           const mainTextEl = card.querySelector('.clip-main-text');
@@ -831,6 +1027,44 @@ class ClipzApp {
         this.historyModal.classList.add('hidden');
       }
     };
+
+    // Reminder Modal Events
+    if (this.closeReminderModalBtn) {
+      this.closeReminderModalBtn.onclick = () => {
+        this.reminderModal.classList.add('hidden');
+      };
+    }
+    if (this.cancelReminderBtn) {
+      this.cancelReminderBtn.onclick = () => {
+        this.reminderModal.classList.add('hidden');
+      };
+    }
+    if (this.saveReminderBtn) {
+      this.saveReminderBtn.onclick = () => {
+        this.saveReminder();
+      };
+    }
+    if (this.clearReminderBtn) {
+      this.clearReminderBtn.onclick = () => {
+        this.clearReminder();
+      };
+    }
+    if (this.reminderModal) {
+      this.reminderModal.onclick = (e) => {
+        if (e.target === this.reminderModal) {
+          this.reminderModal.classList.add('hidden');
+        }
+      };
+    }
+
+    const presetButtons = document.querySelectorAll('.preset-btn');
+    presetButtons.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const preset = (btn as HTMLElement).getAttribute('data-preset');
+        if (preset) this.setPresetReminderTime(preset);
+      });
+    });
 
     this.closeDeleteModalBtn.onclick = () => {
       this.deleteModal.classList.add('hidden');
@@ -865,8 +1099,303 @@ class ClipzApp {
     };
   }
 
-  private openLightbox(src: string) {
+  private openReminderModal(id: string) {
+    const clip = this.clips.find((c) => c.id === id);
+    if (!clip) return;
+
+    this.activeReminderClipId = id;
+    if (clip.category === 'image') {
+      this.reminderClipPreview.innerHTML = `<img src="${clip.content}" style="max-height:55px; border-radius:6px;" alt="Clip Image"/>`;
+    } else if (clip.is_sensitive) {
+      this.reminderClipPreview.textContent = '🔒 Password Protected Clip';
+    } else {
+      this.reminderClipPreview.textContent = clip.content.length > 85 ? clip.content.slice(0, 85) + '...' : clip.content;
+    }
+
+    const targetDate = clip.reminder_at ? new Date(clip.reminder_at * 1000) : new Date(Date.now() + 60 * 60 * 1000);
+    this.reminderDatetimeInput.value = this.formatDateForInput(targetDate);
+
+    if (clip.reminder_at) {
+      this.clearReminderBtn.classList.remove('hidden');
+    } else {
+      this.clearReminderBtn.classList.add('hidden');
+    }
+
+    this.reminderModal.classList.remove('hidden');
+  }
+
+  private formatDateForInput(date: Date): string {
+    const pad = (num: number) => String(num).padStart(2, '0');
+    const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1);
+    const day = pad(date.getDate());
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+
+  private setPresetReminderTime(preset: string) {
+    const now = new Date();
+    if (preset === '15m') {
+      now.setMinutes(now.getMinutes() + 15);
+    } else if (preset === '1h') {
+      now.setHours(now.getHours() + 1);
+    } else if (preset === '4h') {
+      now.setHours(now.getHours() + 4);
+    } else if (preset === 'tomorrow') {
+      now.setDate(now.getDate() + 1);
+      now.setHours(9, 0, 0, 0);
+    }
+    this.reminderDatetimeInput.value = this.formatDateForInput(now);
+  }
+
+  private async saveReminder() {
+    if (!this.activeReminderClipId) return;
+
+    let inputVal = this.reminderDatetimeInput.value;
+    if (!inputVal) {
+      const fallbackDate = new Date(Date.now() + 60 * 60 * 1000);
+      inputVal = this.formatDateForInput(fallbackDate);
+      this.reminderDatetimeInput.value = inputVal;
+    }
+
+    const selectedDate = new Date(inputVal);
+    if (isNaN(selectedDate.getTime())) return;
+
+    const timestampSecs = Math.floor(selectedDate.getTime() / 1000);
+
+    const clip = this.clips.find((c) => c.id === this.activeReminderClipId);
+    if (clip) {
+      clip.reminder_at = timestampSecs;
+      this.triggeredReminderIds.delete(clip.id);
+    }
+
+    this.renderClips();
+    this.updateHeaderReminderBadge();
+    this.reminderModal.classList.add('hidden');
+    this.streamText.innerHTML = `<span class="green-check">✓</span> Reminder set for ${selectedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+    try {
+      await invoke('set_clip_reminder', {
+        id: this.activeReminderClipId,
+        reminder_at: timestampSecs,
+        reminderAt: timestampSecs,
+      });
+    } catch (err) {
+      console.warn('Backend set_clip_reminder note:', err);
+    }
+  }
+
+  private async clearReminder() {
+    if (!this.activeReminderClipId) return;
+    
+    const clip = this.clips.find((c) => c.id === this.activeReminderClipId);
+    if (clip) {
+      clip.reminder_at = null;
+      this.triggeredReminderIds.delete(clip.id);
+    }
+
+    this.renderClips();
+    this.updateHeaderReminderBadge();
+    this.reminderModal.classList.add('hidden');
+    this.streamText.textContent = `Reminder cleared.`;
+
+    try {
+      await invoke('set_clip_reminder', {
+        id: this.activeReminderClipId,
+        reminder_at: null,
+        reminderAt: null,
+      });
+    } catch (err) {
+      console.warn('Backend clear_reminder note:', err);
+    }
+  }
+
+  private initReminderScheduler() {
+    this.reminderCheckInterval = setInterval(() => {
+      const nowSecs = Math.floor(Date.now() / 1000);
+      for (const clip of this.clips) {
+        if (clip.reminder_at && Number(clip.reminder_at) <= nowSecs) {
+          if (!this.triggeredReminderIds.has(clip.id)) {
+            this.triggeredReminderIds.add(clip.id);
+            this.triggerReminderBounce(clip);
+          }
+        }
+      }
+    }, 1000);
+  }
+
+  private stopPillBounce() {
+    this.streamText.classList.remove('jump-8s', 'jump-5s');
+    this.notchShell.classList.remove('reminder-bounce');
+  }
+
+  private async triggerReminderBounce(clip: ClipItem) {
+    try {
+      await invoke('show_window');
+    } catch (_) {}
+
+    await this.setNotchState('preview');
+
+    let textPreview = clip.content.replace(/\r?\n/g, ' ').trim();
+    if (clip.is_sensitive) textPreview = '🔒 Password Protected Clip';
+    else if (clip.category === 'image') textPreview = '🖼️ Screenshot';
+    else if (textPreview.length > 35) textPreview = textPreview.slice(0, 35) + '...';
+
+    this.streamText.innerHTML = `⏰ <b>Reminder:</b> "${this.escapeHTML(textPreview || 'Clip')}"`;
+
+    this.streamText.classList.add('jump-8s');
+    setTimeout(() => {
+      this.streamText.classList.remove('jump-8s');
+    }, 8000);
+
+    clearTimeout(this.previewTimer);
+    this.previewTimer = setTimeout(() => {
+      if (this.currentState === 'preview' && !this.isAnyModalOpen()) {
+        this.setNotchState('pill');
+      }
+    }, 9500);
+  }
+
+  private updateHeaderReminderBadge() {
+    const activeCount = this.clips.filter((c) => c.reminder_at && c.reminder_at * 1000 > Date.now()).length;
+    if (activeCount > 0) {
+      if (this.notchRemindersBtn) this.notchRemindersBtn.classList.add('has-reminders');
+    } else {
+      if (this.notchRemindersBtn) this.notchRemindersBtn.classList.remove('has-reminders');
+    }
+  }
+
+  private openRemindersListModal() {
+    this.renderRemindersList();
+    if (this.remindersListModal) {
+      this.remindersListModal.classList.remove('hidden');
+    }
+  }
+
+  private renderRemindersList() {
+    if (!this.remindersManagerList) return;
+
+    const activeClips = this.clips.filter((c) => c.reminder_at && c.reminder_at > 0);
+
+    if (activeClips.length === 0) {
+      this.remindersManagerList.innerHTML = `
+        <div class="empty-state" style="padding: 28px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
+          <div class="empty-icon" style="font-size: 28px;">⏰</div>
+          <p style="font-size: 13px; font-weight: 600; color: var(--text-main); margin: 0;">No active reminders</p>
+          <span style="font-size: 11px; color: var(--text-dim);">Click the alarm icon on any clip card to set a reminder.</span>
+        </div>
+      `;
+    } else {
+      this.remindersManagerList.innerHTML = activeClips
+        .map((clip) => {
+          const date = new Date(clip.reminder_at! * 1000);
+          const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          
+          let previewText = clip.content.replace(/\r?\n/g, ' ').trim();
+          if (clip.is_sensitive) previewText = '🔒 Password Protected Clip';
+          else if (clip.category === 'image') previewText = '🖼️ Screenshot';
+          else if (previewText.length > 45) previewText = previewText.slice(0, 45) + '...';
+
+          return `
+            <div class="reminder-manager-card" data-clip-id="${clip.id}">
+              <div class="reminder-manager-info">
+                <span class="reminder-manager-text">${this.escapeHTML(previewText || '(empty clip)')}</span>
+                <span class="reminder-manager-time">⏰ ${dateStr} at ${timeStr}</span>
+              </div>
+              <div class="reminder-manager-actions">
+                <button class="btn-edit-reminder" title="Edit Date/Time" data-id="${clip.id}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+                <button class="btn-delete-reminder" title="Delete Reminder" data-id="${clip.id}">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+    }
+
+    const editBtns = this.remindersManagerList.querySelectorAll('.btn-edit-reminder');
+    editBtns.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = (btn as HTMLElement).getAttribute('data-id');
+        if (id) {
+          if (this.remindersListModal) this.remindersListModal.classList.add('hidden');
+          this.openReminderModal(id);
+        }
+      });
+    });
+
+    const deleteBtns = this.remindersManagerList.querySelectorAll('.btn-delete-reminder');
+    deleteBtns.forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = (btn as HTMLElement).getAttribute('data-id');
+        if (id) {
+          this.activeReminderClipId = id;
+          await this.clearReminder();
+          this.renderRemindersList();
+          this.updateHeaderReminderBadge();
+        }
+      });
+    });
+
+    if (this.closeRemindersListModalBtn) {
+      this.closeRemindersListModalBtn.onclick = () => {
+        if (this.remindersListModal) this.remindersListModal.classList.add('hidden');
+      };
+    }
+
+    if (this.remindersListModal) {
+      this.remindersListModal.onclick = (e) => {
+        if (e.target === this.remindersListModal) {
+          this.remindersListModal.classList.add('hidden');
+        }
+      };
+    }
+  }
+
+  private openLightbox(clipOrSrc: ClipItem | string) {
+    let clip: ClipItem | undefined;
+    let contentSrc = '';
+
+    if (typeof clipOrSrc === 'string') {
+      contentSrc = clipOrSrc;
+      clip = this.clips.find((c) => c.content === clipOrSrc);
+    } else {
+      clip = clipOrSrc;
+      contentSrc = clip.content;
+    }
+
+    const src = contentSrc.startsWith('data:image/') ? contentSrc : `data:image/png;base64,${contentSrc}`;
     this.lightboxImg.src = src;
+    this.activeLightboxClip = clip || null;
+
+    if (this.lightboxInfoCard) {
+      this.lightboxInfoCard.classList.add('hidden');
+    }
+    if (this.lightboxInfoBtn) {
+      this.lightboxInfoBtn.classList.remove('active');
+    }
+
+    if (clip) {
+      const appName = clip.source_app && clip.source_app !== 'Unknown App' ? clip.source_app.replace(/\.exe$/i, '') : 'Clipboard';
+      const dateStr = new Date(clip.created_at * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      if (this.lbInfoApp) this.lbInfoApp.textContent = appName;
+      if (this.lbInfoDate) this.lbInfoDate.textContent = dateStr;
+      if (this.lbInfoPastes) this.lbInfoPastes.textContent = `${clip.paste_count || 1} time${(clip.paste_count || 1) === 1 ? '' : 's'}`;
+
+      this.lightboxImg.onload = () => {
+        if (this.lbInfoDim) {
+          this.lbInfoDim.textContent = `${this.lightboxImg.naturalWidth} × ${this.lightboxImg.naturalHeight} px`;
+        }
+      };
+    }
+
     this.imageLightbox.classList.remove('hidden');
   }
 
