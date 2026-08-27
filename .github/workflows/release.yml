@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - development
     tags:
       - 'v*'
   workflow_dispatch:
@@ -37,7 +38,7 @@ jobs:
         run: npm install
 
       - name: Build Production Executables
-        run: npm run tauri build
+        run: npx tauri build
 
       - name: Publish GitHub Release Assets
         uses: softprops/action-gh-release@v2
@@ -55,7 +56,9 @@ jobs:
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app.tar.gz
             src-tauri/target/release/clipz.exe
+          fail_on_unmatched_files: false
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
