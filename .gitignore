@@ -28,3 +28,5 @@ pnpm-debug.log*
 *.sw?
 .DS_Store
 *.exe
+*.msix
+msix_stage/
