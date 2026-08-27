@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Clipz - Clipboard Notch Hub</title>
+  <link rel="icon" type="image/png" href="/app-icon.png" />
   <link rel="stylesheet" href="/styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -51,6 +52,10 @@
           <button class="filter-btn active" data-filter="all">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
             All
+          </button>
+          <button class="filter-btn" data-filter="pinned">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="#f59e0b" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            Pinned
           </button>
           <button class="filter-btn" data-filter="text">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -163,7 +168,7 @@
           <span class="key-hint">↑ ↓</span> navigate
         </div>
         <div class="status-shortcut">
-          <span class="key-hint">↵</span> copy
+          <span class="key-hint">↵</span> paste
         </div>
         <div class="status-shortcut">
           <span class="key-hint">esc</span> to close
@@ -244,36 +249,49 @@
 
     <!-- Image Lightbox Modal -->
     <div id="image-lightbox" class="lightbox-overlay hidden">
-      <button id="lightbox-info-btn" class="lightbox-info-btn" title="Clip Information (i)">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-      </button>
-      <button id="close-lightbox-btn" class="lightbox-close" title="Close Preview">&times;</button>
-      <div class="lightbox-container">
-        <img id="lightbox-img" class="lightbox-img" alt="Full Image Preview" />
-        <div id="lightbox-info-card" class="lightbox-info-card hidden">
-          <div class="info-card-header">
-            <h4>ℹ️ Image Details</h4>
-            <button id="close-lightbox-info-btn" class="icon-btn">&times;</button>
+      <div class="lightbox-top-actions">
+        <button id="lightbox-info-btn" class="lightbox-top-btn" title="Clip Information (i)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </button>
+        <button id="close-lightbox-btn" class="lightbox-top-btn close-btn" title="Close Preview">&times;</button>
+      </div>
+
+      <div id="lightbox-info-card" class="lightbox-info-card hidden">
+        <div class="info-card-header">
+          <h4>ℹ️ Image Details</h4>
+          <button id="close-lightbox-info-btn" class="icon-btn">&times;</button>
+        </div>
+        <div class="info-card-body">
+          <div class="info-item">
+            <span class="info-label">Captured From:</span>
+            <span id="lb-info-app" class="info-value"></span>
           </div>
-          <div class="info-card-body">
-            <div class="info-item">
-              <span class="info-label">Captured From:</span>
-              <span id="lb-info-app" class="info-value"></span>
+          <div class="info-item">
+            <span class="info-label">Captured Date:</span>
+            <span id="lb-info-date" class="info-value"></span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Resolution:</span>
+            <span id="lb-info-dim" class="info-value"></span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Times Pasted:</span>
+            <span id="lb-info-pastes" class="info-value"></span>
+          </div>
+          <div id="lb-ocr-section" class="ocr-section hidden" style="display:flex; flex-direction:column; gap:6px; margin-top:10px; border-top:1px solid rgba(255,255,255,0.08); padding-top:10px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; width:100%;">
+              <span class="info-label">📝 Recognized Text:</span>
+              <button id="lb-copy-ocr-btn" class="icon-btn" title="Copy Recognized Text" style="padding:2px 6px; cursor:pointer;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
             </div>
-            <div class="info-item">
-              <span class="info-label">Captured Date:</span>
-              <span id="lb-info-date" class="info-value"></span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Resolution:</span>
-              <span id="lb-info-dim" class="info-value"></span>
-            </div>
-            <div class="info-item">
-              <span class="info-label">Times Pasted:</span>
-              <span id="lb-info-pastes" class="info-value"></span>
-            </div>
+            <div id="lb-ocr-text" class="ocr-text-box" style="width:100%; max-height:90px; overflow-y:auto; font-family:monospace; font-size:11px; background:rgba(0,0,0,0.3); padding:6px 8px; border-radius:6px; color:#e2e8f0; white-space:pre-wrap; word-break:break-word;"></div>
           </div>
         </div>
+      </div>
+
+      <div class="lightbox-container">
+        <img id="lightbox-img" class="lightbox-img" alt="Full Image Preview" />
       </div>
     </div>
 
