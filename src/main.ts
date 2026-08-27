@@ -12,6 +12,7 @@ interface ClipItem {
   created_at: number;
   paste_count: number;
   reminder_at?: number | null;
+  ocr_text?: string;
 }
 
 interface PasteLogItem {
@@ -70,6 +71,9 @@ class ClipzApp {
   private lbInfoDate: HTMLElement;
   private lbInfoDim: HTMLElement;
   private lbInfoPastes: HTMLElement;
+  private lbOcrSection: HTMLElement | null = null;
+  private lbOcrText: HTMLElement | null = null;
+  private lbCopyOcrBtn: HTMLButtonElement | null = null;
   private activeLightboxClip: ClipItem | null = null;
 
   private searchSection: HTMLElement;
@@ -154,6 +158,9 @@ class ClipzApp {
     this.lbInfoDate = document.getElementById('lb-info-date')!;
     this.lbInfoDim = document.getElementById('lb-info-dim')!;
     this.lbInfoPastes = document.getElementById('lb-info-pastes')!;
+    this.lbOcrSection = document.getElementById('lb-ocr-section');
+    this.lbOcrText = document.getElementById('lb-ocr-text');
+    this.lbCopyOcrBtn = document.getElementById('lb-copy-ocr-btn') as HTMLButtonElement | null;
 
     this.settingsPanel = document.getElementById('settings-panel')!;
     this.settingsBtn = document.getElementById('settings-btn')!;
@@ -858,6 +865,13 @@ class ClipzApp {
     this.bindCardEvents();
   }
 
+  private showToast(msg: string) {
+    this.streamText.innerHTML = `<span class="green-check">✓</span> ${this.escapeHTML(msg)}`;
+    setTimeout(() => {
+      if (this.clips.length > 0) this.updatePillPreview(this.clips[0]);
+    }, 2000);
+  }
+
   private getCategoryIconHTML(clip: ClipItem): string {
     if (clip.is_sensitive) {
       return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
@@ -1394,6 +1408,41 @@ class ClipzApp {
           this.lbInfoDim.textContent = `${this.lightboxImg.naturalWidth} × ${this.lightboxImg.naturalHeight} px`;
         }
       };
+
+      if (this.lbOcrSection && this.lbOcrText) {
+        if (clip.ocr_text && clip.ocr_text.trim().length > 0) {
+          this.lbOcrText.textContent = clip.ocr_text;
+          this.lbOcrSection.classList.remove('hidden');
+        } else {
+          this.lbOcrSection.classList.add('hidden');
+          const targetId = clip.id;
+          invoke<string | null>('extract_clip_ocr', { id: targetId }).then((text) => {
+            if (text && text.trim().length > 0 && this.activeLightboxClip?.id === targetId) {
+              if (this.lbOcrText) this.lbOcrText.textContent = text;
+              if (this.lbOcrSection) this.lbOcrSection.classList.remove('hidden');
+            }
+          }).catch(() => {});
+        }
+
+        if (this.lbCopyOcrBtn) {
+          this.lbCopyOcrBtn.onclick = async () => {
+            const txt = this.lbOcrText?.textContent;
+            if (txt) {
+              const btn = this.lbCopyOcrBtn as HTMLButtonElement;
+              const origHTML = btn.innerHTML;
+              btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+              btn.classList.add('copied-success');
+              setTimeout(() => {
+                btn.innerHTML = origHTML;
+                btn.classList.remove('copied-success');
+              }, 1800);
+
+              await invoke('copy_to_clipboard', { id: null, content: txt, autoPaste: false });
+              this.showToast('✓ Extracted Text Copied');
+            }
+          };
+        }
+      }
     }
 
     this.imageLightbox.classList.remove('hidden');

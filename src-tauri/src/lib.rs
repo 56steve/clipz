@@ -1,5 +1,6 @@
 pub mod clipboard;
 pub mod db;
+pub mod ocr;
 pub mod paste_tracker;
 pub mod security;
 
@@ -40,11 +41,14 @@ fn get_paste_history(
 
 #[tauri::command]
 fn copy_to_clipboard(
+    window: tauri::WebviewWindow,
     state: State<'_, Arc<AppState>>,
     id: Option<String>,
     content: String,
     auto_paste: Option<bool>,
 ) -> Result<(), String> {
+    let should_auto_paste = auto_paste.unwrap_or(false);
+
     #[cfg(windows)]
     unsafe {
         use windows::Win32::Foundation::HWND;
@@ -95,7 +99,9 @@ fn copy_to_clipboard(
                                     let _ = state.db.log_paste(clip_id, &target_app);
                                 }
 
-                                if auto_paste.unwrap_or(false) {
+                                if should_auto_paste {
+                                    let _ = window.hide();
+                                    std::thread::sleep(std::time::Duration::from_millis(70));
                                     paste_tracker::simulate_paste();
                                 }
                                 return Ok(());
@@ -133,10 +139,15 @@ fn copy_to_clipboard(
                 let _ = state.db.log_paste(clip_id, &target_app);
             }
 
-            if auto_paste.unwrap_or(false) {
+            if should_auto_paste {
+                let _ = window.hide();
+                std::thread::sleep(std::time::Duration::from_millis(70));
                 paste_tracker::simulate_paste();
             }
             return Ok(());
+        } else {
+            let _ = windows::Win32::Foundation::GlobalFree(windows::Win32::Foundation::HGLOBAL(hmem.0));
+            return Err("Failed to open Windows Clipboard".to_string());
         }
     }
 
@@ -182,7 +193,9 @@ fn copy_to_clipboard(
                                 if let Some(clip_id) = &id {
                                     let _ = state.db.log_paste(clip_id, &paste_tracker::get_active_app_name());
                                 }
-                                if auto_paste.unwrap_or(false) {
+                                if should_auto_paste {
+                                    let _ = window.hide();
+                                    std::thread::sleep(std::time::Duration::from_millis(70));
                                     paste_tracker::simulate_paste();
                                 }
                                 return Ok(());
@@ -196,7 +209,9 @@ fn copy_to_clipboard(
             if let Some(clip_id) = &id {
                 let _ = state.db.log_paste(clip_id, &paste_tracker::get_active_app_name());
             }
-            if auto_paste.unwrap_or(false) {
+            if should_auto_paste {
+                let _ = window.hide();
+                std::thread::sleep(std::time::Duration::from_millis(70));
                 paste_tracker::simulate_paste();
             }
             return Ok(());
@@ -232,6 +247,26 @@ fn reveal_sensitive(state: State<'_, Arc<AppState>>, id: String) -> Result<Strin
         .security
         .get_transient(&id)
         .ok_or_else(|| "Sensitive clip expired or not found".to_string())
+}
+
+#[tauri::command]
+fn extract_clip_ocr(state: State<'_, Arc<AppState>>, id: String) -> Result<Option<String>, String> {
+    if let Ok(clips) = state.db.get_recent_clips(500) {
+        if let Some(clip) = clips.into_iter().find(|c| c.id == id) {
+            if let Some(ref text) = clip.ocr_text {
+                if !text.trim().is_empty() {
+                    return Ok(Some(text.clone()));
+                }
+            }
+            if clip.category == "image" && !clip.is_sensitive {
+                if let Some(extracted) = ocr::extract_text_from_base64_image(&clip.content) {
+                    let _ = state.db.update_ocr_text(&id, &extracted);
+                    return Ok(Some(extracted));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 #[tauri::command]
@@ -634,7 +669,7 @@ pub fn run() {
                         id: clip_id.clone(),
                         content: display_content,
                         source_app: raw_event.source_app.clone(),
-                        category,
+                        category: category.clone(),
                         is_sensitive,
                         is_pinned: false,
                         created_at: std::time::SystemTime::now()
@@ -643,16 +678,35 @@ pub fn run() {
                             .as_secs() as i64,
                         paste_count: 0,
                         reminder_at: None,
+                        ocr_text: None,
                     };
 
                     // Only save to DB if NOT sensitive or if masked representation
                     let _ = state_clip.db.insert_clip(&item);
 
                     // Update active clip ID for paste tracking
-                    *state_clip.active_clip_id.lock().unwrap() = Some(clip_id.clone());
+                    if let Ok(mut active_id_guard) = state_clip.active_clip_id.lock() {
+                        *active_id_guard = Some(clip_id.clone());
+                    }
 
-                    // Emit real-time stream update to WebView Notch UI
+                    // Emit real-time stream update to WebView Notch UI instantly (<5ms)
                     let _ = handle_clip.emit("new-clip", &item);
+
+                    // Deferred OCR processing in async background task
+                    if category == "image" && !is_sensitive {
+                        let state_ocr = Arc::clone(&state_clip);
+                        let image_content = raw_event.content.clone();
+                        let target_clip_id = clip_id.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let extracted = tokio::task::spawn_blocking(move || {
+                                ocr::extract_text_from_base64_image(&image_content)
+                            }).await.ok().flatten();
+
+                            if let Some(txt) = extracted {
+                                let _ = state_ocr.db.update_ocr_text(&target_clip_id, &txt);
+                            }
+                        });
+                    }
                 }
             });
 
@@ -705,7 +759,8 @@ pub fn run() {
             get_global_shortcut,
             save_global_shortcut,
             center_window,
-            disable_and_uninstall_app
+            disable_and_uninstall_app,
+            extract_clip_ocr
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
