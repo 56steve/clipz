@@ -2,9 +2,6 @@ name: Release Clipz (Windows & macOS)
 
 on:
   push:
-    branches:
-      - main
-      - development
     tags:
       - 'v*'
   workflow_dispatch:
