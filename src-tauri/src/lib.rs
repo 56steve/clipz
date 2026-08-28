@@ -395,7 +395,7 @@ fn initial_center_position(window: &tauri::WebviewWindow, logical_width: f64, lo
     let _ = window.set_always_on_top(true);
     let scale_factor = window.scale_factor().unwrap_or(1.0);
     let target_phys_width = (logical_width * scale_factor).round() as i32;
-    let _target_phys_height = (logical_height * scale_factor).round() as i32;
+    let target_phys_height = (logical_height * scale_factor).round() as i32;
 
     if let Ok(Some(mon)) = window.primary_monitor() {
         let mon_pos = mon.position();
