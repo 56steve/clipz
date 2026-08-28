@@ -1,3 +1,4 @@
+#[cfg(windows)]
 use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::thread;
