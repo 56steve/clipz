@@ -1,6 +1,6 @@
 [package]
 name = "clipz"
-version = "0.1.0"
+version = "0.1.1"
 description = "Native Desktop Clipboard Notch Hub"
 authors = ["Antigravity"]
 edition = "2021"
