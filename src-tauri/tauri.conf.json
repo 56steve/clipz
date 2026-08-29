@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Clipz",
-  "version": "0.1.0",
-  "identifier": "com.clipz.app",
+  "version": "0.1.1",
+  "identifier": "com.clipz.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -33,7 +33,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "dmg", "app"],
+    "targets": "all",
     "publisher": "ClipzApp",
     "icon": [
       "icons/32x32.png",

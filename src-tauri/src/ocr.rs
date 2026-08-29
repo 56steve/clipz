@@ -81,11 +81,14 @@ fn macos_ocr(image_bytes: &[u8]) -> Option<String> {
             return None;
         }
 
-        let handler_cls = class!(VNImageRequestHandler);
-        let req_cls = class!(VNRecognizeTextRequest);
-        if handler_cls == nil || req_cls == nil {
-            return None;
-        }
+        let handler_cls = match objc::runtime::Class::get("VNImageRequestHandler") {
+            Some(cls) => cls,
+            None => return None,
+        };
+        let req_cls = match objc::runtime::Class::get("VNRecognizeTextRequest") {
+            Some(cls) => cls,
+            None => return None,
+        };
 
         let request: id = msg_send![req_cls, alloc];
         let request: id = msg_send![request, init];
