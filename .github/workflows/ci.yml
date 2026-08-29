@@ -1,0 +1,57 @@
+name: CI (Windows & macOS)
+
+# Validation gate for the development branch and pull requests.
+# Builds the full Tauri app on both target OSes but publishes nothing —
+# releases are handled separately by release.yml on `v*` tags.
+
+on:
+  push:
+    branches:
+      - development
+  pull_request:
+    branches:
+      - main
+      - development
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-latest
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck & build frontend
+        run: npm run build
+
+      - name: Build Tauri app (no publish)
+        run: npx tauri build
