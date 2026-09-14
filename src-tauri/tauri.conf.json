@@ -4,8 +4,6 @@
   "version": "0.1.1",
   "identifier": "com.clipz.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -17,7 +15,7 @@
         "width": 130,
         "height": 36,
         "center": true,
-        "resizable": false,
+        "resizable": true,
         "decorations": false,
         "transparent": true,
         "shadow": false,
