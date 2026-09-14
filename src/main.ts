@@ -98,6 +98,8 @@ class ClipzApp {
   private isRecordingHotkey: boolean = false;
 
   private clips: ClipItem[] = [];
+  private blobUrlMap: Map<string, string> = new Map();
+  private pendingOcrIds: Set<string> = new Set();
   private currentFilter: string = 'all';
   private searchDebounceTimer: any = null;
   private hoverCollapseTimer: any = null;
@@ -111,6 +113,7 @@ class ClipzApp {
   private dragStartX: number = 0;
   private dragStartY: number = 0;
   private isDraggingWindow: boolean = false;
+  private expandCooldownUntil: number = 0;
 
   constructor() {
     this.notchShell = document.getElementById('notch-shell')!;
@@ -249,6 +252,7 @@ class ClipzApp {
 
       case 'expanded':
         this.isExpanded = true;
+        this.expandCooldownUntil = Date.now() + 500;
         try {
           await invoke('expand_window');
         } catch (_) {}
@@ -256,6 +260,7 @@ class ClipzApp {
         requestAnimationFrame(() => {
           this.notchShell.classList.remove('state-pill', 'state-preview', 'collapsed');
           this.notchShell.classList.add('state-expanded', 'expanded');
+          this.renderClips();
           setTimeout(() => {
             if (this.currentState === 'expanded') {
               this.searchInput.focus({ preventScroll: true });
@@ -267,46 +272,33 @@ class ClipzApp {
   }
 
   private initEventListeners() {
-    this.notchHeader.addEventListener('mousedown', (e) => {
-      // Don't trigger window drag if clicking action buttons or filter elements
-      if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
+    const handleDragStart = async (e: MouseEvent) => {
+      // Don't trigger window drag if clicking action buttons, search, or cards
+      if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn, .clip-card, .search-row, .settings-panel')) return;
       if (e.button === 0) {
         this.isDraggingWindow = false;
         this.dragStartTime = Date.now();
         this.dragStartX = e.screenX;
         this.dragStartY = e.screenY;
 
-        const handleMouseMove = async (moveEvt: MouseEvent) => {
-          if (!this.isDraggingWindow && moveEvt.buttons === 1) {
-            const moveDist = Math.hypot(moveEvt.screenX - this.dragStartX, moveEvt.screenY - this.dragStartY);
-            if (moveDist > 5) {
-              this.isDraggingWindow = true;
-              try {
-                await invoke('start_dragging');
-              } catch (_) {
-                try {
-                  await getCurrentWindow().startDragging();
-                } catch (_) {}
-              }
-            }
-          }
-        };
-
-        const handleMouseUp = () => {
-          window.removeEventListener('mousemove', handleMouseMove);
-          window.removeEventListener('mouseup', handleMouseUp);
-        };
-
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
+        // Native OS window dragging
+        try {
+          await getCurrentWindow().startDragging();
+        } catch (_) {
+          try {
+            await invoke('start_dragging');
+          } catch (_) {}
+        }
       }
-    });
+    };
+
+    this.notchHeader.addEventListener('mousedown', handleDragStart);
+    this.notchShell.addEventListener('mousedown', handleDragStart);
 
     this.notchHeader.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
-      if (this.isDraggingWindow) return;
-      const dragDuration = Date.now() - this.dragStartTime;
-      const moveDist = Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY);
+      const dragDuration = this.dragStartTime > 0 ? Date.now() - this.dragStartTime : 0;
+      const moveDist = this.dragStartX !== 0 ? Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY) : 0;
       if (dragDuration > 300 || moveDist > 5) {
         return;
       }
@@ -315,21 +307,20 @@ class ClipzApp {
     });
 
     this.notchShell.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn, .clip-card, .search-row, .settings-panel')) return;
+      const dragDuration = this.dragStartTime > 0 ? Date.now() - this.dragStartTime : 0;
+      const moveDist = this.dragStartX !== 0 ? Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY) : 0;
+      if (dragDuration > 300 || moveDist > 5) return;
+
       this.stopPillBounce();
-      if (this.currentState === 'pill') {
-        if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
-        if (this.isDraggingWindow) return;
-        const dragDuration = Date.now() - this.dragStartTime;
-        const moveDist = Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY);
-        if (dragDuration > 300 || moveDist > 5) return;
-        this.setNotchState('expanded');
-      }
+      this.toggleExpand();
     });
 
     const toggleExpandBtn = document.getElementById('toggle-expand-btn');
     if (toggleExpandBtn) {
       toggleExpandBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        this.stopPillBounce();
         this.toggleExpand();
       });
     }
@@ -344,31 +335,16 @@ class ClipzApp {
       });
     }
 
-    // Cancel any pending collapse on mouse enter
-    this.notchShell.addEventListener('mouseenter', () => {
-      clearTimeout(this.hoverCollapseTimer);
-    });
-
-    // Retract notch smoothly back to micro-pill when cursor leaves the Clipz window
-    this.notchShell.addEventListener('mouseleave', () => {
-      clearTimeout(this.hoverCollapseTimer);
-      this.hoverCollapseTimer = setTimeout(() => {
-        if (this.currentState === 'expanded' && !this.isAnyModalOpen()) {
-          this.setNotchState('pill');
-        }
-      }, 350);
-    });
-
     // Collapse back to micro-pill when expanded window loses focus (e.g. clicking background anywhere on screen or another app)
     window.addEventListener('blur', () => {
-      if (this.currentState === 'expanded' && !this.isAnyModalOpen()) {
+      if (this.currentState === 'expanded' && Date.now() >= this.expandCooldownUntil && !this.isAnyModalOpen()) {
         this.setNotchState('pill');
       }
     });
 
     // Collapse back to micro-pill when clicking on background outside notch shell
     document.addEventListener('click', (e: MouseEvent) => {
-      if (!this.notchShell.contains(e.target as Node) && this.currentState === 'expanded' && !this.isAnyModalOpen()) {
+      if (!this.notchShell.contains(e.target as Node) && this.currentState === 'expanded' && Date.now() >= this.expandCooldownUntil && !this.isAnyModalOpen()) {
         this.setNotchState('pill');
       }
     });
@@ -582,7 +558,7 @@ class ClipzApp {
 
       // Listen for window blur event from Tauri native window manager
       await listen('tauri://blur', () => {
-        if (this.currentState === 'expanded') {
+        if (this.currentState === 'expanded' && Date.now() >= this.expandCooldownUntil && !this.isAnyModalOpen()) {
           this.setNotchState('pill');
         }
       });
@@ -597,8 +573,125 @@ class ClipzApp {
           }
         }, 3000);
       });
+
+      // Listen for background OCR text updates
+      await listen<{ id: string; ocr_text: string }>('clip-ocr-updated', (event) => {
+        const payload = event.payload;
+        if (payload && payload.id && payload.ocr_text) {
+          const target = this.clips.find((c) => c.id === payload.id);
+          if (target) {
+            target.ocr_text = payload.ocr_text;
+            this.updateCardOcrDisplay(payload.id, payload.ocr_text);
+          }
+        }
+      });
     } catch (err) {
       console.warn('Tauri event listeners fallback:', err);
+    }
+  }
+
+  private getImageUrl(clip: ClipItem): string {
+    if (this.blobUrlMap.has(clip.id)) {
+      return this.blobUrlMap.get(clip.id)!;
+    }
+    const content = clip.content || '';
+    if (content.startsWith('blob:') || content.startsWith('http')) {
+      return content;
+    }
+    try {
+      let b64 = content;
+      let mime = 'image/png';
+      if (b64.startsWith('data:')) {
+        const commaIdx = b64.indexOf(',');
+        const semiIdx = b64.indexOf(';');
+        if (semiIdx > 5 && semiIdx < commaIdx) {
+          mime = b64.slice(5, semiIdx);
+        }
+        b64 = b64.slice(commaIdx + 1);
+      }
+      const byteChars = atob(b64);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteNumbers[i] = byteChars.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mime });
+      const blobUrl = URL.createObjectURL(blob);
+      this.blobUrlMap.set(clip.id, blobUrl);
+      return blobUrl;
+    } catch (_) {
+      const src = content.startsWith('data:') ? content : `data:image/png;base64,${content}`;
+      return src;
+    }
+  }
+
+  private requestOcrExtraction(id: string) {
+    if (this.pendingOcrIds.has(id)) return;
+    this.pendingOcrIds.add(id);
+    invoke<string | null>('extract_clip_ocr', { id })
+      .then((text) => {
+        if (text && text.trim().length > 0) {
+          const target = this.clips.find((c) => c.id === id);
+          if (target) {
+            target.ocr_text = text;
+            this.updateCardOcrDisplay(id, text);
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.pendingOcrIds.delete(id);
+      });
+  }
+
+  private updateCardOcrDisplay(id: string, text: string) {
+    const cardEl = this.clipsContainer.querySelector(`[data-id="${id}"]`);
+    if (!cardEl) return;
+    const bodyEl = cardEl.querySelector('.clip-body');
+    if (!bodyEl) return;
+
+    // Check if OCR chip already exists
+    if (bodyEl.querySelector('.clip-ocr-chip')) {
+      const textSpan = bodyEl.querySelector('.ocr-chip-text');
+      if (textSpan) textSpan.textContent = text.replace(/\r?\n/g, ' ').trim();
+      const popoverText = cardEl.querySelector('.ocr-popover-text');
+      if (popoverText) popoverText.textContent = text;
+      return;
+    }
+
+    const cleanOCR = text.replace(/\r?\n/g, ' ').trim();
+    const chipDiv = document.createElement('div');
+    chipDiv.className = 'clip-ocr-chip';
+    chipDiv.title = 'Click to view/copy recognized text';
+    chipDiv.innerHTML = `
+      <span class="ocr-chip-icon">📝</span>
+      <span class="ocr-chip-text">${this.escapeHTML(cleanOCR)}</span>
+      <button class="ocr-chip-copy-btn" title="Copy OCR Text">Copy</button>
+    `;
+
+    const popoverDiv = document.createElement('div');
+    popoverDiv.className = 'ocr-hover-popover';
+    popoverDiv.innerHTML = `
+      <div class="ocr-popover-title">📝 Recognized Text</div>
+      <div class="ocr-popover-text">${this.escapeHTML(text)}</div>
+    `;
+
+    const metaEl = bodyEl.querySelector('.clip-sub-meta');
+    if (metaEl) {
+      bodyEl.insertBefore(chipDiv, metaEl);
+    } else {
+      bodyEl.appendChild(chipDiv);
+    }
+    cardEl.appendChild(popoverDiv);
+
+    const copyBtn = chipDiv.querySelector('.ocr-chip-copy-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        await invoke('copy_to_clipboard', { id: null, content: text, auto_paste: false });
+        this.showToast('✓ OCR text copied');
+      });
     }
   }
 
@@ -877,8 +970,8 @@ class ClipzApp {
       return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
     }
     if (clip.category === 'image') {
-      const src = clip.content.startsWith('data:image/') ? clip.content : `data:image/png;base64,${clip.content}`;
-      return `<img src="${src}" class="clip-thumb-img" alt="Thumbnail" />`;
+      const src = this.getImageUrl(clip);
+      return `<img src="${src}" class="clip-thumb-img" alt="Thumbnail" loading="lazy" />`;
     }
     switch (clip.category) {
       case 'code':
@@ -926,6 +1019,29 @@ class ClipzApp {
     const contentHTML = this.renderClipPreviewText(clip);
     const hasActiveReminder = clip.reminder_at && clip.reminder_at * 1000 > Date.now();
 
+    let ocrChipHTML = '';
+    let ocrPopoverHTML = '';
+    if (clip.category === 'image' && !clip.is_sensitive) {
+      if (clip.ocr_text && clip.ocr_text.trim().length > 0) {
+        const cleanOCR = clip.ocr_text.replace(/\r?\n/g, ' ').trim();
+        ocrChipHTML = `
+          <div class="clip-ocr-chip" title="Click to view/copy recognized text">
+            <span class="ocr-chip-icon">📝</span>
+            <span class="ocr-chip-text">${this.escapeHTML(cleanOCR)}</span>
+            <button class="ocr-chip-copy-btn" data-id="${clip.id}" title="Copy OCR Text">Copy</button>
+          </div>
+        `;
+        ocrPopoverHTML = `
+          <div class="ocr-hover-popover">
+            <div class="ocr-popover-title">📝 Recognized Text</div>
+            <div class="ocr-popover-text">${this.escapeHTML(clip.ocr_text)}</div>
+          </div>
+        `;
+      } else {
+        this.requestOcrExtraction(clip.id);
+      }
+    }
+
     return `
       <div class="clip-card ${clip.is_pinned ? 'pinned' : ''} ${isSelected ? 'selected' : ''}" data-id="${clip.id}">
         <div class="clip-icon">
@@ -935,6 +1051,7 @@ class ClipzApp {
           <div class="clip-main-text ${clip.category === 'code' ? 'code-font' : ''}">
             ${contentHTML}
           </div>
+          ${ocrChipHTML}
           <div class="clip-sub-meta">
             <span>${this.escapeHTML(clip.source_app)}</span>
             <span class="meta-dot">•</span>
@@ -943,6 +1060,7 @@ class ClipzApp {
             ${clip.reminder_at ? `<span class="meta-dot">•</span><span style="color:#f59e0b;">⏰ ${new Date(clip.reminder_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>` : ''}
           </div>
         </div>
+        ${ocrPopoverHTML}
         <div class="clip-right-actions">
           ${isSelected ? '<span class="enter-badge" title="Press Enter to Copy">↵</span>' : ''}
           <div class="action-btn-group">
@@ -971,6 +1089,18 @@ class ClipzApp {
       const copyBtn = card.querySelector('.copy-btn');
       const deleteBtn = card.querySelector('.delete-btn');
       const revealBtn = card.querySelector('.reveal-btn');
+      const ocrChipCopyBtn = card.querySelector('.ocr-chip-copy-btn');
+
+      if (ocrChipCopyBtn) {
+        ocrChipCopyBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          if (clip && clip.ocr_text) {
+            await invoke('copy_to_clipboard', { id: null, content: clip.ocr_text, auto_paste: false });
+            this.showToast('✓ OCR text copied');
+          }
+        });
+      }
 
       if (reminderBtn) {
         reminderBtn.addEventListener('click', (e) => {
@@ -1006,7 +1136,7 @@ class ClipzApp {
 
       card.addEventListener('click', (e) => {
         const target = e.target as HTMLElement;
-        if (target.closest('.action-btn') || target.closest('.reveal-btn')) {
+        if (target.closest('.action-btn') || target.closest('.reveal-btn') || target.closest('.ocr-chip-copy-btn')) {
           return;
         }
         this.stopPillBounce();
@@ -1119,7 +1249,8 @@ class ClipzApp {
 
     this.activeReminderClipId = id;
     if (clip.category === 'image') {
-      this.reminderClipPreview.innerHTML = `<img src="${clip.content}" style="max-height:55px; border-radius:6px;" alt="Clip Image"/>`;
+      const src = this.getImageUrl(clip);
+      this.reminderClipPreview.innerHTML = `<img src="${src}" style="max-height:55px; border-radius:6px;" alt="Clip Image"/>`;
     } else if (clip.is_sensitive) {
       this.reminderClipPreview.textContent = '🔒 Password Protected Clip';
     } else {
@@ -1385,7 +1516,7 @@ class ClipzApp {
       contentSrc = clip.content;
     }
 
-    const src = contentSrc.startsWith('data:image/') ? contentSrc : `data:image/png;base64,${contentSrc}`;
+    const src = clip ? this.getImageUrl(clip) : (contentSrc.startsWith('data:') ? contentSrc : `data:image/png;base64,${contentSrc}`);
     this.lightboxImg.src = src;
     this.activeLightboxClip = clip || null;
 
@@ -1454,7 +1585,8 @@ class ClipzApp {
 
     this.pendingDeleteId = id;
     if (clip.category === 'image') {
-      this.deleteClipPreview.innerHTML = `<img src="${clip.content}" style="max-height:65px; border-radius:6px;" alt="Clip Image"/>`;
+      const src = this.getImageUrl(clip);
+      this.deleteClipPreview.innerHTML = `<img src="${src}" style="max-height:65px; border-radius:6px;" alt="Clip Image"/>`;
     } else if (clip.is_sensitive) {
       this.deleteClipPreview.textContent = '🔒 Password Protected Clip';
     } else {
@@ -1530,6 +1662,12 @@ class ClipzApp {
   }
 
   private async deleteClip(id: string) {
+    if (this.blobUrlMap.has(id)) {
+      try {
+        URL.revokeObjectURL(this.blobUrlMap.get(id)!);
+      } catch (_) {}
+      this.blobUrlMap.delete(id);
+    }
     // Optimistically update UI state immediately
     this.clips = this.clips.filter((c) => c.id !== id);
     this.renderClips();
