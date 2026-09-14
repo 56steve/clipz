@@ -63,68 +63,70 @@
   background: rgba(255, 255, 255, 0.35);
 }
 
-html, body {
+html {
   background: transparent !important;
   background-color: rgba(0, 0, 0, 0) !important;
-  color-scheme: normal !important;
-  margin: 0;
-  padding: 0;
+  color-scheme: dark !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 100vh !important;
+  width: 100vw !important;
   overflow: hidden !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
-}
-
-html::-webkit-scrollbar, body::-webkit-scrollbar {
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
 }
 
 body {
   font-family: var(--font-sans);
   color: var(--text-main);
   overflow: hidden !important;
-  height: 100%;
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start !important;
-  padding: 4px 10px 0 10px;
-  margin: 0;
+  height: 100vh !important;
+  width: 100vw !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  padding: 4px 10px 10px 10px !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
   background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  color-scheme: dark !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
 }
 
 /* Floating Premium Dark Obsidian Cylinder Shell */
 .notch-shell {
+  position: relative;
   color-scheme: dark;
   width: 100%;
   max-width: 684px;
-  height: 100%;
   margin: 0 auto;
   background: #000000;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 22px;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
-  transition: width 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-              height 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-              max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-              max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-              border-radius 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box !important;
+  transform: translateZ(0);
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              height 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              border-radius 0.3s cubic-bezier(0.16, 1, 0.3, 1),
               border-color 0.2s ease,
               opacity 0.2s ease;
   overflow: hidden !important;
-  display: flex;
-  flex-direction: column;
-  will-change: width, height, max-width, max-height, border-radius;
-  transform: translateZ(0);
 }
 
 /* Collapsed 28px Compact Micro-Pill State */
 .notch-shell.state-pill {
   max-width: 96px !important;
   width: 96px !important;
-  max-height: 28px !important;
   height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
   border-radius: 9999px !important;
   opacity: 0.95;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
@@ -238,8 +240,9 @@ body {
 .notch-shell.state-preview {
   max-width: 480px !important;
   width: 480px !important;
-  max-height: 28px !important;
   height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
   border-radius: 9999px !important;
   opacity: 1;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.2);
@@ -265,12 +268,14 @@ body {
 /* Expanded Full Drawer State (Adaptive to High DPI 150%+ Scaling) */
 .notch-shell.state-expanded {
   width: 100% !important;
-  max-width: 100% !important;
-  height: 100% !important;
-  max-height: 100% !important;
+  max-width: 684px !important;
+  height: 504px !important;
+  min-height: 504px !important;
+  max-height: 504px !important;
   border-radius: 22px !important;
   opacity: 1;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.15);
+  overflow: hidden !important;
 }
 
 .notch-body {
@@ -301,26 +306,45 @@ body {
   100% { border-color: rgba(255, 255, 255, 0.12); }
 }
 
-.notch-shell.collapsed .notch-body {
+.notch-shell.collapsed .notch-body,
+.notch-shell.state-pill .notch-body,
+.notch-shell.state-preview .notch-body {
+  display: none !important;
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
   transform: translateY(-8px) !important;
 }
 
-/* Fail-safe: Prevent drawer body from ever rendering if viewport height is <= 100px */
-@media (max-height: 100px) {
-  .notch-body {
-    display: none !important;
-    visibility: hidden !important;
-    height: 0 !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-  }
+.notch-shell.state-expanded .notch-body,
+.notch-shell.expanded .notch-body {
+  display: flex !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+  transform: translateY(0) !important;
 }
 
-.notch-header:active {
-  cursor: grabbing;
+/* Native OS Drag Region Styling */
+.notch-header,
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  cursor: grab !important;
+}
+
+.notch-header:active,
+[data-tauri-drag-region]:active {
+  cursor: grabbing !important;
+}
+
+.notch-header button,
+.notch-header input,
+.notch-header a,
+.notch-header .icon-btn,
+.search-section,
+.timeline-section,
+.settings-panel {
+  -webkit-app-region: no-drag;
 }
 
 .notch-header:hover {
@@ -416,14 +440,17 @@ body {
 
 /* Notch Body Drawer */
 .notch-body {
+  position: relative;
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  height: calc(100% - 28px);
-  padding: 12px 16px;
-  gap: 10px;
+  flex: 1 1 auto;
+  height: 468px !important;
+  min-height: 468px !important;
+  max-height: 468px !important;
+  padding: 8px 14px 10px 14px;
+  gap: 8px;
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .notch-shell.expanded .notch-body {
@@ -446,6 +473,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .search-row {
@@ -556,8 +584,11 @@ body {
 
 /* Timeline Stream Cards */
 .timeline-section {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 200px;
+  max-height: 385px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
 }
 
@@ -568,11 +599,11 @@ body {
   background: transparent;
 }
 .timeline-section::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 4px;
 }
 .timeline-section::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .empty-state {
@@ -601,10 +632,10 @@ body {
   background: transparent;
   border: none;
   border-radius: 10px;
-  padding: 8px 12px;
+  padding: 7px 10px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   cursor: pointer;
   transition: background 0.15s ease;
   position: relative;
@@ -612,11 +643,11 @@ body {
 }
 
 .clip-card:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .clip-card.selected {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.09);
 }
 
 /* Left blue indicator line for selected item */
@@ -647,19 +678,25 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
 }
 
 .clip-thumb-img {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   object-fit: cover;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   background: #09090c;
   display: block;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.clip-card:hover .clip-thumb-img {
+  border-color: rgba(99, 102, 241, 0.6);
+  transform: scale(1.05);
 }
 
 .clip-main-text .image-text {
@@ -667,12 +704,118 @@ body {
   font-weight: 500;
 }
 
+/* OCR Front Preview Chip on Image Cards */
+.clip-ocr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(99, 102, 241, 0.14);
+  border: 1px solid rgba(99, 102, 241, 0.32);
+  border-radius: 5px;
+  padding: 1.5px 6px;
+  margin-top: 2px;
+  max-width: fit-content;
+  color: #c7d2fe;
+  font-size: 10.5px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.clip-ocr-chip:hover {
+  background: rgba(99, 102, 241, 0.28);
+  border-color: rgba(99, 102, 241, 0.6);
+  color: #ffffff;
+}
+
+.ocr-chip-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.ocr-chip-text {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.ocr-chip-copy-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  border-radius: 3px;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 0 4px;
+  line-height: 1.5;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease;
+}
+
+.ocr-chip-copy-btn:hover {
+  background: var(--accent-primary);
+}
+
+/* OCR Hover Popover / Tooltip */
+.ocr-hover-popover {
+  position: absolute;
+  left: 48px;
+  bottom: calc(100% + 2px);
+  background: rgba(14, 14, 20, 0.98);
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  border-radius: 8px;
+  padding: 8px 10px;
+  width: 320px;
+  max-width: 85vw;
+  max-height: 120px;
+  overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(12px);
+  z-index: 900;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: translateY(4px);
+}
+
+.ocr-popover-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ocr-popover-text {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #f1f5f9;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.clip-card:hover .ocr-hover-popover,
+.clip-ocr-chip:hover ~ .ocr-hover-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 /* Clip Main Body */
 .clip-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0; /* Enables line truncation */
 }
 
@@ -795,39 +938,6 @@ body {
   justify-content: center;
   cursor: pointer;
   color: var(--text-dim);
-
-.danger-card {
-  border-color: rgba(239, 68, 68, 0.25) !important;
-  background: rgba(239, 68, 68, 0.04) !important;
-}
-
-.text-danger {
-  color: #ef4444 !important;
-}
-
-.btn-danger-outline {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #ef4444;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-  flex-shrink: 0;
-  gap: 6px;
-  transition: all 0.2s ease;
-}
-
-.btn-danger-outline:hover {
-  background: #ef4444;
-  color: #ffffff;
-  border-color: #ef4444;
-}
   transition: all 0.15s ease;
   padding: 0;
 }
@@ -877,8 +987,11 @@ body {
   justify-content: space-between;
   font-size: 11px;
   color: var(--text-dim);
-  padding: 8px 16px 2px;
+  padding: 6px 4px 2px;
   border-top: 1px solid var(--border-glass);
+  flex-shrink: 0;
+  min-height: 26px;
+  box-sizing: border-box;
 }
 
 .status-shortcut {
@@ -899,7 +1012,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  border-radius: 24px;
+  border-radius: 22px;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.88);
   backdrop-filter: blur(12px);
@@ -1077,14 +1190,14 @@ body {
   right: 0;
   bottom: 0;
   z-index: 9999;
-  border-radius: 24px;
+  border-radius: 22px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.88);
-  backdrop-filter: blur(12px);
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(14px);
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: zoom-out;
+  padding: 16px;
   animation: lightbox-fade-in 0.2s ease;
 }
 
@@ -1095,22 +1208,27 @@ body {
 
 .lightbox-container {
   position: relative;
-  max-width: 90%;
-  max-height: 85%;
-  border-radius: 20px;
+  max-width: 92%;
+  max-height: 82%;
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95);
+  background: #08080c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lightbox-img {
-  width: 100%;
-  height: 100%;
-  max-width: 90vw;
-  max-height: 85vh;
+  max-width: 100%;
+  max-height: 72vh;
+  width: auto;
+  height: auto;
   object-fit: contain;
-  border-radius: 20px;
+  border-radius: 12px;
   display: block;
+  user-select: none;
 }
 
 .lightbox-top-actions {
