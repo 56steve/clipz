@@ -295,7 +295,8 @@ fn show_window(window: tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-fn resize_window_preserving_position(window: &tauri::WebviewWindow, logical_width: f64, logical_height: f64) {
+fn resize_window_preserving_position(window: &tauri::WebviewWindow, logical_width: f64, logical_height: f64, activate: bool) {
+    let _ = window.set_resizable(true);
     let _ = window.set_shadow(false);
     let _ = window.show();
     let _ = window.set_always_on_top(true);
@@ -306,10 +307,10 @@ fn resize_window_preserving_position(window: &tauri::WebviewWindow, logical_widt
     let current_pos = window.outer_position().ok();
     let current_size = window.outer_size().ok();
 
-    if let (Some(pos), Some(size)) = (current_pos, current_size) {
+    let (new_x, new_y) = if let (Some(pos), Some(size)) = (current_pos, current_size) {
         let center_x = pos.x + (size.width as i32) / 2;
-        let mut new_x = center_x - target_phys_width / 2;
-        let mut new_y = pos.y;
+        let mut x = center_x - target_phys_width / 2;
+        let mut y = pos.y;
 
         let monitor = window.current_monitor().ok().flatten().or_else(|| window.primary_monitor().ok().flatten());
         if let Some(mon) = monitor {
@@ -321,75 +322,55 @@ fn resize_window_preserving_position(window: &tauri::WebviewWindow, logical_widt
             let max_y = mon_pos.y + mon_size.height as i32 - target_phys_height;
 
             if max_x >= min_x {
-                new_x = new_x.clamp(min_x, max_x);
+                x = x.clamp(min_x, max_x);
             }
             if max_y >= min_y {
-                new_y = new_y.clamp(min_y, max_y);
+                y = y.clamp(min_y, max_y);
             }
         }
-
-        #[cfg(windows)]
-        if let Ok(hwnd) = window.hwnd() {
-            use windows::Win32::Foundation::HWND;
-            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE};
-            unsafe {
-                let _ = SetWindowPos(
-                    HWND(hwnd.0),
-                    HWND_TOPMOST,
-                    new_x,
-                    new_y,
-                    target_phys_width,
-                    target_phys_height,
-                    SWP_NOACTIVATE,
-                );
-            }
-            return;
-        }
-
-        #[cfg(not(windows))]
-        {
-            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(logical_width, logical_height)));
-            let logical_x = (new_x as f64) / scale_factor;
-            let logical_y = (new_y as f64) / scale_factor;
-            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(logical_x, logical_y)));
-            let _ = window.set_shadow(false);
-        }
+        (x, y)
     } else if let Ok(Some(mon)) = window.primary_monitor() {
         let mon_pos = mon.position();
         let mon_size = mon.size();
         let x = mon_pos.x + (mon_size.width as i32 - target_phys_width) / 2;
         let y = mon_pos.y + (12.0 * scale_factor).round() as i32;
+        (x, y)
+    } else {
+        (0, 0)
+    };
 
-        #[cfg(windows)]
-        if let Ok(hwnd) = window.hwnd() {
-            use windows::Win32::Foundation::HWND;
-            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE};
-            unsafe {
-                let _ = SetWindowPos(
-                    HWND(hwnd.0),
-                    HWND_TOPMOST,
-                    x,
-                    y,
-                    target_phys_width,
-                    target_phys_height,
-                    SWP_NOACTIVATE,
-                );
-            }
-            return;
-        }
+    let logical_x = (new_x as f64) / scale_factor;
+    let logical_y = (new_y as f64) / scale_factor;
 
-        #[cfg(not(windows))]
-        {
-            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(logical_width, logical_height)));
-            let logical_x = (x as f64) / scale_factor;
-            let logical_y = (y as f64) / scale_factor;
-            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(logical_x, logical_y)));
-            let _ = window.set_shadow(false);
+    // Notify Tauri's Tao and WebView2 controller of the new logical size and position
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(logical_width, logical_height)));
+    let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(logical_x, logical_y)));
+
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW};
+        let swp_flags = if activate { SWP_SHOWWINDOW } else { SWP_NOACTIVATE };
+        unsafe {
+            let _ = SetWindowPos(
+                HWND(hwnd.0),
+                HWND_TOPMOST,
+                new_x,
+                new_y,
+                target_phys_width,
+                target_phys_height,
+                swp_flags,
+            );
         }
+    }
+
+    if activate {
+        let _ = window.set_focus();
     }
 }
 
 fn initial_center_position(window: &tauri::WebviewWindow, logical_width: f64, logical_height: f64) {
+    let _ = window.set_resizable(true);
     let _ = window.set_shadow(false);
     let _ = window.show();
     let _ = window.set_always_on_top(true);
@@ -402,6 +383,11 @@ fn initial_center_position(window: &tauri::WebviewWindow, logical_width: f64, lo
         let mon_size = mon.size();
         let x = mon_pos.x + (mon_size.width as i32 - target_phys_width) / 2;
         let y = mon_pos.y + (12.0 * scale_factor).round() as i32;
+        let logical_x = (x as f64) / scale_factor;
+        let logical_y = (y as f64) / scale_factor;
+
+        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(logical_width, logical_height)));
+        let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(logical_x, logical_y)));
 
         #[cfg(windows)]
         if let Ok(hwnd) = window.hwnd() {
@@ -418,34 +404,25 @@ fn initial_center_position(window: &tauri::WebviewWindow, logical_width: f64, lo
                     SWP_NOACTIVATE,
                 );
             }
-            return;
-        }
-
-        #[cfg(not(windows))]
-        {
-            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(logical_width, logical_height)));
-            let logical_x = (x as f64) / scale_factor;
-            let logical_y = (y as f64) / scale_factor;
-            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(logical_x, logical_y)));
         }
     }
 }
 
 #[tauri::command]
 fn shrink_to_pill(window: tauri::WebviewWindow) -> Result<(), String> {
-    resize_window_preserving_position(&window, 130.0, 36.0);
+    resize_window_preserving_position(&window, 130.0, 36.0, false);
     Ok(())
 }
 
 #[tauri::command]
 fn show_preview_notch(window: tauri::WebviewWindow) -> Result<(), String> {
-    resize_window_preserving_position(&window, 500.0, 46.0);
+    resize_window_preserving_position(&window, 500.0, 46.0, false);
     Ok(())
 }
 
 #[tauri::command]
 fn expand_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    resize_window_preserving_position(&window, 700.0, 520.0);
+    resize_window_preserving_position(&window, 700.0, 520.0, true);
     let _ = window.set_focus();
     Ok(())
 }
@@ -457,7 +434,7 @@ fn start_dragging(window: tauri::WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 fn collapse_window(window: tauri::WebviewWindow) -> Result<(), String> {
-    resize_window_preserving_position(&window, 130.0, 36.0);
+    resize_window_preserving_position(&window, 130.0, 36.0, false);
     Ok(())
 }
 
@@ -697,6 +674,7 @@ pub fn run() {
                         let state_ocr = Arc::clone(&state_clip);
                         let image_content = raw_event.content.clone();
                         let target_clip_id = clip_id.clone();
+                        let handle_ocr = handle_clip.clone();
                         tauri::async_runtime::spawn(async move {
                             let extracted = tokio::task::spawn_blocking(move || {
                                 ocr::extract_text_from_base64_image(&image_content)
@@ -704,6 +682,10 @@ pub fn run() {
 
                             if let Some(txt) = extracted {
                                 let _ = state_ocr.db.update_ocr_text(&target_clip_id, &txt);
+                                let _ = handle_ocr.emit("clip-ocr-updated", serde_json::json!({
+                                    "id": target_clip_id,
+                                    "ocr_text": txt
+                                }));
                             }
                         });
                     }
@@ -717,14 +699,8 @@ pub fn run() {
                 while let Ok(paste_event) = paste_rx.recv() {
                     if paste_event.target_app == "HOTKEY_ALT_C" {
                         if let Some(window) = handle_paste.get_webview_window("main") {
-                            if let Ok(is_visible) = window.is_visible() {
-                                if is_visible {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
                         let _ = handle_paste.emit("toggle-notch-hotkey", ());
                     } else {

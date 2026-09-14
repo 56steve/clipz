@@ -5,21 +5,25 @@ use std::thread;
 
 #[cfg(windows)]
 use windows::{
-    core::PCWSTR,
     Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM},
     Win32::System::DataExchange::{
-        AddClipboardFormatListener, CloseClipboard, GetClipboardData, IsClipboardFormatAvailable,
-        OpenClipboard,
+        CloseClipboard, GetClipboardData, GetClipboardSequenceNumber,
+        IsClipboardFormatAvailable, OpenClipboard,
     },
     Win32::System::Memory::GlobalLock,
     Win32::System::ProcessStatus::GetModuleFileNameExW,
     Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
-    Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, GetForegroundWindow,
-        GetWindowThreadProcessId, PeekMessageW, RegisterClassW, HWND_MESSAGE, MSG, PM_REMOVE,
-        WNDCLASSW,
-    },
+    Win32::UI::WindowsAndMessaging::{DefWindowProcW, GetForegroundWindow, GetWindowThreadProcessId},
 };
+
+fn hash_content(s: &str) -> u64 {
+    let mut hash: u64 = 14695981039346656037;
+    for &b in s.as_bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    hash
+}
 
 #[derive(Debug, Clone)]
 pub struct RawClipEvent {
@@ -33,59 +37,60 @@ pub struct ClipboardListener;
 impl ClipboardListener {
     pub fn start_listening(tx: Sender<RawClipEvent>) {
         thread::spawn(move || {
+            let mut last_captured_text = String::new();
+            let mut last_captured_img_hash: u64 = 0;
             #[cfg(windows)]
-            unsafe {
-                let class_name = windows::core::w!("ClipzClipboardListenerClass");
-                let instance = windows::Win32::System::LibraryLoader::GetModuleHandleW(PCWSTR::null())
-                    .unwrap_or_default();
+            let mut last_seq: u32 = unsafe { GetClipboardSequenceNumber() };
 
-                let wnd_class = WNDCLASSW {
-                    lpfnWndProc: Some(window_proc),
-                    hInstance: instance.into(),
-                    lpszClassName: class_name,
-                    ..Default::default()
-                };
+            loop {
+                thread::sleep(std::time::Duration::from_millis(150));
 
-                RegisterClassW(&wnd_class);
-
-                let hwnd = match CreateWindowExW(
-                    Default::default(),
-                    class_name,
-                    windows::core::w!("ClipzClipboardListenerWindow"),
-                    Default::default(),
-                    0,
-                    0,
-                    0,
-                    0,
-                    HWND_MESSAGE,
-                    None,
-                    instance,
-                    None,
-                ) {
-                    Ok(h) => h,
-                    Err(_) => {
-                        eprintln!("[Clipz] Failed to create hidden message window for clipboard listener");
-                        return;
+                #[cfg(windows)]
+                {
+                    let current_seq = unsafe { GetClipboardSequenceNumber() };
+                    if current_seq != 0 && current_seq == last_seq {
+                        continue;
                     }
-                };
-
-                if AddClipboardFormatListener(hwnd).is_err() {
-                    eprintln!("[Clipz] Failed to register AddClipboardFormatListener");
-                    return;
+                    last_seq = current_seq;
                 }
 
-                let mut last_captured_text = String::new();
-                let mut last_captured_img_len = 0;
-
-                let mut msg = MSG::default();
-                loop {
-                    while PeekMessageW(&mut msg, HWND::default(), 0, 0, PM_REMOVE).as_bool() {
-                        let _ = windows::Win32::UI::WindowsAndMessaging::TranslateMessage(&msg);
-                        windows::Win32::UI::WindowsAndMessaging::DispatchMessageW(&msg);
+                let mut captured = false;
+                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                    if let Ok(text) = clipboard.get_text() {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() && text != last_captured_text {
+                            last_captured_text = text.clone();
+                            let source_app = get_active_app_name();
+                            let _ = tx.send(RawClipEvent {
+                                content: text,
+                                source_app,
+                                is_image: false,
+                            });
+                            captured = true;
+                        }
+                    } else if let Ok(image) = clipboard.get_image() {
+                        if !image.bytes.is_empty() {
+                            let bmp_base64 = rgba_to_bmp_base64(&image);
+                            let img_hash = hash_content(&bmp_base64);
+                            if img_hash != 0 && img_hash != last_captured_img_hash {
+                                last_captured_img_hash = img_hash;
+                                let source_app = get_active_app_name();
+                                let _ = tx.send(RawClipEvent {
+                                    content: bmp_base64,
+                                    source_app,
+                                    is_image: true,
+                                });
+                                captured = true;
+                            }
+                        }
                     }
+                }
 
+                #[cfg(windows)]
+                if !captured {
                     if let Some(text) = read_clipboard_text() {
-                        if !text.is_empty() && text != last_captured_text {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() && text != last_captured_text {
                             last_captured_text = text.clone();
                             let source_app = get_active_app_name();
                             let _ = tx.send(RawClipEvent {
@@ -95,47 +100,13 @@ impl ClipboardListener {
                             });
                         }
                     } else if let Some(img_data) = read_clipboard_image() {
-                        if img_data.len() != last_captured_img_len {
-                            last_captured_img_len = img_data.len();
-                            let source_app = get_active_app_name();
-                            let _ = tx.send(RawClipEvent {
-                                content: img_data,
-                                source_app,
-                                is_image: true,
-                            });
-                        }
-                    }
-
-                    thread::sleep(std::time::Duration::from_millis(150));
-                }
-            }
-
-            #[cfg(not(windows))]
-            {
-                let mut last_captured_text = String::new();
-                let mut last_captured_img_len = 0;
-
-                loop {
-                    thread::sleep(std::time::Duration::from_millis(200));
-
-                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                        if let Ok(text) = clipboard.get_text() {
-                            if !text.is_empty() && text != last_captured_text {
-                                last_captured_text = text.clone();
+                        if !img_data.is_empty() {
+                            let img_hash = hash_content(&img_data);
+                            if img_hash != 0 && img_hash != last_captured_img_hash {
+                                last_captured_img_hash = img_hash;
                                 let source_app = get_active_app_name();
                                 let _ = tx.send(RawClipEvent {
-                                    content: text,
-                                    source_app,
-                                    is_image: false,
-                                });
-                            }
-                        } else if let Ok(image) = clipboard.get_image() {
-                            if image.bytes.len() != last_captured_img_len && !image.bytes.is_empty() {
-                                last_captured_img_len = image.bytes.len();
-                                let bmp_base64 = rgba_to_bmp_base64(&image);
-                                let source_app = get_active_app_name();
-                                let _ = tx.send(RawClipEvent {
-                                    content: bmp_base64,
+                                    content: img_data,
                                     source_app,
                                     is_image: true,
                                 });
@@ -186,18 +157,26 @@ fn read_clipboard_text() -> Option<String> {
             return None;
         }
 
-        let handle = handle.unwrap();
-        let ptr = GlobalLock(windows::Win32::Foundation::HGLOBAL(handle.0));
+        let hmem = windows::Win32::Foundation::HGLOBAL(handle.unwrap().0);
+        let ptr = GlobalLock(hmem);
         if ptr.is_null() {
             let _ = CloseClipboard();
             return None;
         }
 
-        let slice = std::slice::from_raw_parts(ptr as *const u16, 50000);
+        let size = windows::Win32::System::Memory::GlobalSize(hmem);
+        if size < 2 {
+            let _ = windows::Win32::System::Memory::GlobalUnlock(hmem);
+            let _ = CloseClipboard();
+            return None;
+        }
+
+        let num_u16 = size / 2;
+        let slice = std::slice::from_raw_parts(ptr as *const u16, num_u16);
         let len = slice.iter().position(|&c| c == 0).unwrap_or(slice.len());
         let text = String::from_utf16_lossy(&slice[..len]);
 
-        let _ = windows::Win32::System::Memory::GlobalUnlock(windows::Win32::Foundation::HGLOBAL(handle.0));
+        let _ = windows::Win32::System::Memory::GlobalUnlock(hmem);
         let _ = CloseClipboard();
 
         Some(text)
@@ -338,8 +317,7 @@ pub fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-#[cfg(not(windows))]
-fn rgba_to_bmp_base64(img: &arboard::ImageData) -> String {
+pub fn rgba_to_bmp_base64(img: &arboard::ImageData) -> String {
     let width = img.width as u32;
     let height = img.height as u32;
     let rgba_bytes = &img.bytes;
