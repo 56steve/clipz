@@ -57,8 +57,8 @@ fn copy_to_clipboard(
         use clipboard::base64_decode;
 
         let target_text = if let Some(clip_id) = &id {
-            if let Some(sensitive_str) = state.security.get_transient(clip_id) {
-                sensitive_str
+            if let Some(secret) = reveal_secret(&state, clip_id) {
+                secret
             } else {
                 content
             }
@@ -154,8 +154,8 @@ fn copy_to_clipboard(
     #[cfg(not(windows))]
     {
         let target_text = if let Some(clip_id) = &id {
-            if let Some(sensitive_str) = state.security.get_transient(clip_id) {
-                sensitive_str
+            if let Some(secret) = reveal_secret(&state, clip_id) {
+                secret
             } else {
                 content
             }
@@ -223,7 +223,8 @@ fn copy_to_clipboard(
 
 #[tauri::command]
 fn delete_clip(state: State<'_, Arc<AppState>>, id: String) -> Result<(), String> {
-    state.security.clear_transient(&id);
+    // The sealed secret lives in the row itself now, so deleting the row takes
+    // it with them; there is no separate in-memory copy left to clear.
     state.db.delete_clip(&id).map_err(|e| e.to_string())
 }
 
@@ -241,12 +242,25 @@ fn set_clip_reminder(
     state.db.set_clip_reminder(&id, reminder_at).map_err(|e| e.to_string())
 }
 
+/// Unseal a sensitive clip's text, or None when there is nothing to unseal.
+///
+/// Shared by the clipboard commands and `reveal_sensitive` so both read the
+/// secret the same way.
+fn reveal_secret(state: &State<'_, Arc<AppState>>, id: &str) -> Option<String> {
+    let blob = state.db.get_secret_blob(id).ok().flatten()?;
+    state.security.open(&blob).ok()
+}
+
 #[tauri::command]
 fn reveal_sensitive(state: State<'_, Arc<AppState>>, id: String) -> Result<String, String> {
-    state
-        .security
-        .get_transient(&id)
-        .ok_or_else(|| "Sensitive clip expired or not found".to_string())
+    match state.db.get_secret_blob(&id) {
+        Ok(Some(blob)) => state.security.open(&blob),
+        // Clips captured before encryption existed, or captured while the key
+        // store was unavailable, have no sealed copy. Say so plainly rather
+        // than implying the clip expired.
+        Ok(None) => Err("This clip's text was not saved".to_string()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -489,11 +503,21 @@ fn disable_and_uninstall_app(
     // 2. Remove platform-specific autostart entries
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("reg")
-            .args(&["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Clipz", "/f"])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output();
+        use windows::core::PCWSTR;
+        use windows::Win32::System::Registry::{RegDeleteKeyValueW, HKEY_CURRENT_USER};
+
+        // The registry API rather than `reg.exe`: spawning a process to delete
+        // one value trips the Store's blocked-executable check for cmd.
+        let subkey = wide("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+        let value = wide("Clipz");
+        unsafe {
+            // Absent value is the normal case; there is nothing to report.
+            let _ = RegDeleteKeyValueW(
+                HKEY_CURRENT_USER,
+                PCWSTR(subkey.as_ptr()),
+                PCWSTR(value.as_ptr()),
+            );
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -522,8 +546,140 @@ fn disable_and_uninstall_app(
     Ok(())
 }
 
+/// Tell the user why Clipz cannot start, then exit.
+///
+/// The old code called `.expect()` here. With `panic = "abort"` and a stripped
+/// release binary that is a silent quit: no window, no message, nothing to
+/// report. A desktop app has no terminal to print to, so the reason goes to a
+/// native dialog instead. Shelled out per platform rather than pulled from a
+/// dialog crate: this runs before the Tauri app exists, and one startup error
+/// path does not justify another dependency.
+/// A null-terminated UTF-16 string, as every Win32 `W` function expects.
+#[cfg(windows)]
+fn wide(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn fatal_startup_error(message: &str) -> ! {
+    eprintln!("Clipz cannot start: {message}");
+
+    #[cfg(target_os = "macos")]
+    {
+        let detail = message.replace('"', "'");
+        let script = format!(
+            "display dialog \"Clipz cannot start.\" & return & return & \"{detail}\" \
+             buttons {{\"Quit\"}} default button 1 with icon stop with title \"Clipz\""
+        );
+        let _ = std::process::Command::new("osascript").arg("-e").arg(script).status();
+    }
+
+    #[cfg(windows)]
+    {
+        use windows::core::PCWSTR;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+        // MessageBoxW rather than a PowerShell one-liner: a packaged app that
+        // references powershell.exe fails the Store's blocked-executable check,
+        // and shelling out to show an error is absurd anyway.
+        let body = wide(&format!("Clipz cannot start.\r\n\r\n{message}"));
+        let title = wide("Clipz");
+        unsafe {
+            MessageBoxW(
+                HWND::default(),
+                PCWSTR(body.as_ptr()),
+                PCWSTR(title.as_ptr()),
+                MB_OK | MB_ICONERROR,
+            );
+        }
+    }
+
+    std::process::exit(1);
+}
+
+/// Where the mouse pointer is, in the same space as the window's own geometry.
+///
+/// macOS reports the cursor in points and Tauri reports window geometry in
+/// physical pixels, so the caller scales; Windows reports both in pixels.
+fn cursor_position() -> Option<(f64, f64)> {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use std::ffi::c_void;
+
+        #[repr(C)]
+        struct CGPoint {
+            x: f64,
+            y: f64,
+        }
+
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGEventCreate(source: *const c_void) -> *const c_void;
+            fn CGEventGetLocation(event: *const c_void) -> CGPoint;
+            fn CFRelease(cf: *const c_void);
+        }
+
+        let event = CGEventCreate(std::ptr::null());
+        if event.is_null() {
+            return None;
+        }
+        let point = CGEventGetLocation(event);
+        CFRelease(event);
+        Some((point.x, point.y))
+    }
+
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+        let mut point = POINT::default();
+        if GetCursorPos(&mut point).is_ok() {
+            Some((point.x as f64, point.y as f64))
+        } else {
+            None
+        }
+    }
+
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        None
+    }
+}
+
+/// Is the pointer inside the notch window right now?
+///
+/// Asked from a timer rather than answered by DOM events on purpose. Once the
+/// pointer leaves the window, the OS stops delivering mouse moves to it, so the
+/// web view's own `mouseleave` frequently never arrives: that is why hover-out
+/// closing looked implemented but never fired. Polling the real cursor against
+/// the window rectangle works whether or not the window has focus, on both
+/// platforms.
+fn pointer_inside_window(window: &tauri::WebviewWindow) -> Option<bool> {
+    let (cursor_x, cursor_y) = cursor_position()?;
+    let position = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+
+    // macOS gives the cursor in points; the window rect is in physical pixels.
+    let scale = if cfg!(target_os = "macos") {
+        window.scale_factor().unwrap_or(1.0)
+    } else {
+        1.0
+    };
+
+    let left = position.x as f64 / scale;
+    let top = position.y as f64 / scale;
+    let right = left + size.width as f64 / scale;
+    let bottom = top + size.height as f64 / scale;
+
+    Some(cursor_x >= left && cursor_x <= right && cursor_y >= top && cursor_y <= bottom)
+}
+
 pub fn run() {
-    let db = DatabaseManager::new().expect("Failed to initialize SQLite database");
+    let db = match DatabaseManager::new() {
+        Ok(db) => db,
+        Err(message) => fatal_startup_error(&message),
+    };
     let security = SecurityManager::new();
 
     let initial_shortcut = db.get_setting("global_shortcut").ok().flatten().unwrap_or_else(|| {
@@ -551,9 +707,6 @@ pub fn run() {
             // 2. Start Win32 Paste Tracker Hook
             let (paste_tx, paste_rx) = mpsc::channel::<paste_tracker::PasteEvent>();
             paste_tracker::PasteTracker::start_tracking(paste_tx);
-
-            // 3. Start RAM TTL Security Cleanup Task
-            app_state_clip.security.start_cleanup_task();
 
             // 4. Position Window at Top-Center of Primary Monitor as Compact Pill
             if let Some(window) = app.get_webview_window("main") {
@@ -619,6 +772,27 @@ pub fn run() {
                     .build(app);
             }
 
+            // Watch the pointer so the drawer can close when it leaves.
+            let handle_pointer = handle.clone();
+            std::thread::spawn(move || {
+                let mut was_inside = true;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    let Some(window) = handle_pointer.get_webview_window("main") else {
+                        continue;
+                    };
+                    let Some(inside) = pointer_inside_window(&window) else {
+                        continue;
+                    };
+                    if inside != was_inside {
+                        was_inside = inside;
+                        // The UI decides what to do with it: it knows whether a
+                        // dialog is open or the user is mid-search.
+                        let _ = window.emit("pointer-outside", !inside);
+                    }
+                }
+            });
+
             let handle_clip = handle.clone();
             let state_clip = Arc::clone(&app_state_clip);
 
@@ -631,12 +805,9 @@ pub fn run() {
 
                     let category = classify_content(&raw_event.content, is_sensitive);
 
+                    // Sensitive clips are stored sealed, with only the mask in
+                    // `content`. Sealing happens after the row exists, below.
                     let display_content = if is_sensitive {
-                        state_clip.security.store_transient(
-                            clip_id.clone(),
-                            raw_event.content.clone(),
-                            raw_event.source_app.clone(),
-                        );
                         "🔒 Password Protected".to_string()
                     } else {
                         raw_event.content.clone()
@@ -659,7 +830,25 @@ pub fn run() {
                     };
 
                     // Only save to DB if NOT sensitive or if masked representation
-                    let _ = state_clip.db.insert_clip(&item);
+                    if let Err(e) = state_clip.db.insert_clip(&item) {
+                        eprintln!("Clipz: could not save a clip: {e}");
+                    }
+
+                    if is_sensitive {
+                        // Fail closed: if the key store is unavailable the clip
+                        // keeps its mask and simply cannot be revealed. Writing
+                        // the secret in plain text instead would defeat the point.
+                        match state_clip.security.seal(&raw_event.content) {
+                            Ok(sealed) => {
+                                if let Err(e) = state_clip.db.set_secret_blob(&clip_id, &sealed) {
+                                    eprintln!("Clipz: sealed a sensitive clip but could not store it: {e}");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Clipz: not storing a sensitive clip, sealing failed: {e}");
+                            }
+                        }
+                    }
 
                     // Update active clip ID for paste tracking
                     if let Ok(mut active_id_guard) = state_clip.active_clip_id.lock() {

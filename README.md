@@ -1,23 +1,25 @@
 # Clipz ✂️ — Clipboard Notch Hub
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)
 ![Framework](https://img.shields.io/badge/Tauri-v2-orange.svg)
 ![Language](https://img.shields.io/badge/Rust-TypeScript-brightgreen.svg)
-![Platform](https://img.shields.io/badge/platform-Windows-blue.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-**Clipz** is a modern, lightweight, high-performance desktop clipboard manager and productivity hub for Windows. Designed around a sleek **Dynamic Island / Top Notch** paradigm, Clipz seamlessly listens for clipboard events in real-time, categorizes items, securely encrypts sensitive data, and provides lightning-fast full-text search.
+**Clipz** is a modern, lightweight, high-performance desktop clipboard manager and productivity hub for **Windows and macOS**. Designed around a sleek **Dynamic Island / Top Notch** paradigm, Clipz listens for clipboard events in real-time, categorizes items, and provides lightning-fast full-text search. Sensitive items are encrypted at rest on both platforms; see [Security](#-security) for exactly what that protects against.
 
 ---
 
 ## ✨ Features
 
 - 🏝️ **Dynamic Island Notch UI**: Floating top-center interface with smooth glassmorphism styling, hover-to-expand drawer, and keyboard accessibility.
-- ⚡ **Win32 Real-Time Monitoring**: Custom low-overhead Rust clipboard monitoring loop using native Windows APIs (`AddClipboardFormatListener`).
+- ⚡ **Real-Time Monitoring**: Low-overhead Rust clipboard loop. On Windows it uses the native clipboard sequence number; on macOS it polls the pasteboard.
 - 🔍 **SQLite FTS5 Full-Text Search**: Instant, sub-millisecond search across your entire clipboard history.
 - 🏷️ **Smart Categorization & Filters**: Auto-detects plain text, code snippets, web URLs, and sensitive credentials/passwords.
 - 🛡️ **Enterprise-Grade Security**:
-  - **Windows DPAPI**: Sensitive items are encrypted at rest via native Windows Data Protection API.
+  - **Windows**: sensitive items are sealed with the native Data Protection API (DPAPI). The key belongs to your Windows account and never touches the disk.
+  - **macOS**: sensitive items are sealed with AES-256-GCM. The key lives in `secret.key` next to the database, readable only by your user account (`0600`). Neither platform ever asks you for a password.
+  - **What this does not stop**: software already running as you can ask the OS to unseal a clip, exactly as Clipz does. Encryption at rest protects the database file itself — in backups, on a shared disk, or in another account's hands.
   - **RAM TTL Protection**: High-security clip memory cleanup after 60 seconds.
 - 🎯 **Paste Tracking & Source Apps**: Tracks active target windows and source applications.
 - ⌨️ **Keyboard & Power User Friendly**:
@@ -37,7 +39,21 @@
 | **Desktop Framework** | Tauri v2 (`@tauri-apps/api`, `@tauri-apps/cli`) |
 | **Backend Core** | Rust, `windows` crate (Win32 API integration) |
 | **Database** | SQLite3 with FTS5 (`rusqlite`) |
-| **Security** | Windows DPAPI (`dpapi-rs` / Windows Crypto API) |
+| **Security** | Windows DPAPI · AES-256-GCM on macOS with an owner-only key file |
+
+---
+
+## 💾 Where your clips are stored
+
+The database lives in the per-user data folder for the platform, never beside the executable:
+
+| Platform | Location |
+|---|---|
+| **Windows** | `%APPDATA%\clipz\clipz.db` |
+| **macOS** | `~/Library/Application Support/Clipz/clipz.db` |
+| **Linux** | `$XDG_DATA_HOME/clipz/clipz.db`, else `~/.local/share/clipz/clipz.db` |
+
+Delete that folder to wipe your clipboard history. The file is a plain SQLite database: ordinary clips are stored as-is and anyone with access to your account can read them. Sensitive clips are the exception — only the `🔒 Password Protected` mask is stored in plain text, with the secret held sealed alongside it.
 
 ---
 
@@ -112,7 +128,7 @@ clipz/
         ├── clipboard.rs  # Win32 clipboard monitoring thread
         ├── db.rs         # SQLite FTS5 database engine
         ├── paste_tracker.rs # Foreground window & paste detector
-        └── security.rs   # DPAPI encryption & memory zeroing
+        └── security.rs   # Sensitive-clip detection and encryption at rest
 ```
 
 ---

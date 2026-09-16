@@ -53,5 +53,151 @@ jobs:
       - name: Typecheck & build frontend
         run: npm run build
 
-      - name: Build Tauri app (no publish)
-        run: npx tauri build
+      # Build every distributable format, so a packaging regression surfaces
+      # here rather than on release day: MSI, NSIS setup and the raw exe on
+      # Windows, .app and .dmg on macOS, with the MSIX packaged below.
+      #
+      # Tauri downloads the WiX and NSIS toolchains from GitHub on first use
+      # and one of those fetches has already failed a run with an HTTP 500, so
+      # retry instead of failing on someone else's outage.
+      - name: Build Tauri app (all bundles)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npx tauri build; then
+              exit 0
+            fi
+            echo "::warning::tauri build failed on attempt $attempt"
+            sleep 30
+          done
+          echo "::error::tauri build failed three times"
+          exit 1
+
+      # Catch MSIX packaging breakage on every PR rather than at submission
+      # time. Unsigned on purpose: the Store signs submissions itself.
+      - name: Package MSIX (Windows)
+        if: matrix.os == 'windows-latest'
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/msix/build-msix.ps1
+
+      # Fails the run if a format silently stopped being produced, which an
+      # artifact upload alone would not catch.
+      - name: Verify Windows formats
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          set -e
+          for pattern in \
+            "src-tauri/target/release/clipz.exe" \
+            "src-tauri/target/release/bundle/msi/"*.msi \
+            "src-tauri/target/release/bundle/nsis/"*-setup.exe \
+            "target-msix/"*.msix
+          do
+            if [ ! -f "$pattern" ]; then echo "::error::missing build output: $pattern"; exit 1; fi
+            ls -l "$pattern"
+          done
+
+      - name: Verify macOS formats
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -e
+          app="src-tauri/target/release/bundle/macos/Clipz.app"
+          if [ ! -x "$app/Contents/MacOS/clipz" ]; then echo "::error::missing or non-executable $app"; exit 1; fi
+          du -sh "$app"
+          dmg=(src-tauri/target/release/bundle/dmg/*.dmg)
+          if [ ! -f "${dmg[0]}" ]; then echo "::error::no .dmg was produced"; exit 1; fi
+          ls -l "${dmg[0]}"
+
+      - name: Upload Windows packages
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipz-windows
+          path: |
+            src-tauri/target/release/clipz.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            target-msix/*.msix
+          if-no-files-found: error
+
+      - name: Upload macOS packages
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipz-macos
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+      # The Windows App Certification Kit runs the same suite Store
+      # certification does, so a failure here is a failure there. Running it on
+      # every Windows build means submissions stop being the place we find out.
+      - name: Windows App Certification Kit
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $appcert = 'C:\Program Files (x86)\Windows Kits\10\App Certification Kit\appcert.exe'
+          if (-not (Test-Path $appcert)) {
+            throw "appcert.exe not found at $appcert. The runner image no longer ships the App Certification Kit."
+          }
+
+          $package = Get-ChildItem 'target-msix\*.msix' | Select-Object -First 1
+          if (-not $package) { throw 'No MSIX package was produced.' }
+
+          $report = Join-Path $env:GITHUB_WORKSPACE 'target-msix\wack-report.xml'
+          & $appcert reset
+          & $appcert test -appxpackagepath $package.FullName -reportoutputpath $report
+          if (-not (Test-Path $report)) { throw 'The certification kit produced no report.' }
+
+          # appcert's own exit code does not reflect the verdict, and
+          # OVERALL_RESULT reports PASS even when individual tests fail — the
+          # blocked-executable failure it hid is exactly the kind of thing the
+          # Store rejects for. Judge on the tests themselves.
+          $xml = [xml](Get-Content $report)
+          $overall = $xml.REPORT.OVERALL_RESULT
+          $failed = @($xml.SelectNodes('//TEST') | Where-Object { $_.RESULT.'#cdata-section'.Trim() -ne 'PASS' })
+
+          # Tauri's own process::restart uses std::process::Command, and the Rust
+          # standard library carries cmd.exe strings for batch-file handling, so
+          # every Tauri app trips "Blocked executables" on these five references.
+          # We cannot remove them without patching Tauri, and the kit marks the
+          # test optional. Any reference BEYOND these still fails the build —
+          # that is what caught the powershell call we had added ourselves.
+          $knownBlockedRefs = @(
+            'kernel32.dll!CreateProcessW',
+            'shell32.dll!ShellExecuteW',
+            '"cmd"',
+            '"cmd.exe"',
+            '"\cmd.exe"'
+          )
+
+          $blocking = @()
+          Write-Host "Overall: $overall; $($failed.Count) failing test(s)"
+          foreach ($test in $failed) {
+            $messages = @($test.MESSAGES.MESSAGE | ForEach-Object { $_.TEXT })
+            $unexpected = @($messages | Where-Object {
+              $message = $_
+              -not ($knownBlockedRefs | Where-Object { $message -like "*$_*" })
+            })
+
+            if ($test.NAME -eq 'Blocked executables' -and $unexpected.Count -eq 0) {
+              Write-Host "KNOWN (not blocking): $($test.NAME) - only Tauri's own process references"
+              continue
+            }
+
+            Write-Host "FAIL: $($test.NAME)"
+            foreach ($message in $unexpected) { Write-Host "    $message" }
+            $blocking += $test.NAME
+          }
+
+          if ($blocking.Count -gt 0) {
+            throw "App Certification Kit: $($blocking -join ', ')"
+          }
+          if ($overall -ne 'PASS') { throw "App Certification Kit result: $overall" }
+
+      - name: Upload certification report
+        if: matrix.os == 'windows-latest' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipz-wack-report
+          path: target-msix/wack-report.xml
+          if-no-files-found: warn

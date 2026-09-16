@@ -302,8 +302,11 @@ body {
 
 @keyframes pulse-copy {
   0% { border-color: var(--accent-primary); }
+
   50% { border-color: rgba(99, 102, 241, 0.5); }
+
   100% { border-color: rgba(255, 255, 255, 0.12); }
+
 }
 
 .notch-shell.collapsed .notch-body,
@@ -362,7 +365,9 @@ body {
 
 @keyframes pulse-dot {
   0%, 100% { transform: scale(1); opacity: 1; }
+
   50% { transform: scale(1.3); opacity: 0.6; }
+
 }
 
 .pill-stream-preview {
@@ -462,10 +467,12 @@ body {
     opacity: 0;
     transform: translateY(-12px);
   }
+
   100% {
     opacity: 1;
     transform: translateY(0);
   }
+
 }
 
 /* Search Section */
@@ -595,13 +602,16 @@ body {
 .timeline-section::-webkit-scrollbar {
   width: 5px;
 }
+
 .timeline-section::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .timeline-section::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.15);
   border-radius: 4px;
 }
+
 .timeline-section::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.35);
 }
@@ -616,6 +626,7 @@ body {
   gap: 6px;
   padding: 40px 0;
 }
+
 .empty-icon {
   font-size: 32px;
   margin-bottom: 4px;
@@ -702,112 +713,6 @@ body {
 .clip-main-text .image-text {
   color: #c084fc;
   font-weight: 500;
-}
-
-/* OCR Front Preview Chip on Image Cards */
-.clip-ocr-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: rgba(99, 102, 241, 0.14);
-  border: 1px solid rgba(99, 102, 241, 0.32);
-  border-radius: 5px;
-  padding: 1.5px 6px;
-  margin-top: 2px;
-  max-width: fit-content;
-  color: #c7d2fe;
-  font-size: 10.5px;
-  transition: all 0.15s ease;
-  cursor: pointer;
-}
-
-.clip-ocr-chip:hover {
-  background: rgba(99, 102, 241, 0.28);
-  border-color: rgba(99, 102, 241, 0.6);
-  color: #ffffff;
-}
-
-.ocr-chip-icon {
-  font-size: 10px;
-  flex-shrink: 0;
-}
-
-.ocr-chip-text {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-.ocr-chip-copy-btn {
-  background: rgba(255, 255, 255, 0.12);
-  border: none;
-  border-radius: 3px;
-  color: #ffffff;
-  font-size: 9px;
-  font-weight: 600;
-  padding: 0 4px;
-  line-height: 1.5;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.15s ease;
-}
-
-.ocr-chip-copy-btn:hover {
-  background: var(--accent-primary);
-}
-
-/* OCR Hover Popover / Tooltip */
-.ocr-hover-popover {
-  position: absolute;
-  left: 48px;
-  bottom: calc(100% + 2px);
-  background: rgba(14, 14, 20, 0.98);
-  border: 1px solid rgba(99, 102, 241, 0.45);
-  border-radius: 8px;
-  padding: 8px 10px;
-  width: 320px;
-  max-width: 85vw;
-  max-height: 120px;
-  overflow-y: auto;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.95);
-  backdrop-filter: blur(12px);
-  z-index: 900;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 0.15s ease, transform 0.15s ease;
-  transform: translateY(4px);
-}
-
-.ocr-popover-title {
-  font-size: 10px;
-  font-weight: 600;
-  color: #a5b4fc;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.ocr-popover-text {
-  font-size: 11px;
-  line-height: 1.4;
-  color: #f1f5f9;
-  font-family: var(--font-mono);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.clip-card:hover .ocr-hover-popover,
-.clip-ocr-chip:hover ~ .ocr-hover-popover {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
 }
 
 /* Clip Main Body */
@@ -976,6 +881,7 @@ body {
   font-size: 10px;
   cursor: pointer;
 }
+
 .reveal-btn:hover {
   background: rgba(245, 158, 11, 0.3);
 }
@@ -1051,6 +957,7 @@ body {
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-glass);
 }
+
 .modal-header h3 {
   font-size: 13px;
   font-weight: 600;
@@ -1203,7 +1110,9 @@ body {
 
 @keyframes lightbox-fade-in {
   from { opacity: 0; }
+
   to { opacity: 1; }
+
 }
 
 .lightbox-container {
@@ -1304,7 +1213,9 @@ body {
 
 @keyframes info-card-pop {
   from { opacity: 0; transform: translate(-50%, 10px) scale(0.96); }
+
   to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+
 }
 
 .info-card-header {
@@ -1371,10 +1282,12 @@ body {
     opacity: 0;
     transform: translateY(6px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
   }
+
 }
 
 .settings-header {
@@ -1456,7 +1369,9 @@ body {
 
 @keyframes popover-fade {
   from { opacity: 0; transform: translateY(-4px); }
+
   to { opacity: 1; transform: translateY(0); }
+
 }
 
 .recording-display-box {
@@ -1675,13 +1590,15 @@ body {
   font-weight: 500;
 }
 
-
-
 @keyframes save-fade {
   0% { opacity: 0; transform: translateX(-4px); }
+
   20% { opacity: 1; transform: translateX(0); }
+
   80% { opacity: 1; }
+
   100% { opacity: 0; }
+
 }
 
 .settings-footer-note {
@@ -1721,12 +1638,15 @@ body {
   0%, 100% {
     transform: translateY(0);
   }
+
   45% {
     transform: translateY(-5px);
   }
+
   70% {
     transform: translateY(1px);
   }
+
 }
 
 .stream-text.jump-8s {
@@ -1990,4 +1910,32 @@ body {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.15);
   border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* The OCR button lights up once text has actually been recognised, so the icon
+   distinguishes "there is text to copy" from "nothing found yet". Matches the
+   reminder button's active treatment. */
+.action-btn.ocr-btn.has-text {
+  color: #10b981 !important;
+  opacity: 1 !important;
+}
+
+
+
+/* Recognised text panel. Monospace because OCR output is often codes, IDs and
+   addresses, where a slab of proportional text is harder to check by eye. */
+.ocr-modal-text {
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
 }

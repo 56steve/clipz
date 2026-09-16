@@ -31,12 +31,30 @@ pub struct DatabaseManager {
 }
 
 impl DatabaseManager {
-    pub fn new() -> Result<Self> {
-        let app_dir = dirs_data_dir().unwrap_or_else(|| PathBuf::from("./data"));
-        fs::create_dir_all(&app_dir).ok();
+    /// Open the clip database in this OS's per-user data folder.
+    ///
+    /// The path is always ABSOLUTE. This used to fall back to a relative
+    /// "./data", which resolves against the folder the process happens to be
+    /// started from. A desktop launch starts at "/" on macOS and at
+    /// C:\Windows\System32 on Windows, so the database could not be created
+    /// there and the app aborted before it ever drew a window. It only ever
+    /// worked when launched from a terminal that happened to sit in a folder
+    /// with a writable "data" directory.
+    pub fn new() -> std::result::Result<Self, String> {
+        let app_dir = app_data_dir().ok_or_else(|| {
+            "Could not work out where to keep Clipz data: neither APPDATA nor HOME is set.".to_string()
+        })?;
+        fs::create_dir_all(&app_dir).map_err(|e| {
+            format!("Could not create the Clipz data folder at {}: {e}", app_dir.display())
+        })?;
         let db_path = app_dir.join("clipz.db");
 
-        let conn = Connection::open(&db_path)?;
+        Self::open_at(&db_path)
+            .map_err(|e| format!("Could not open the clip database at {}: {e}", db_path.display()))
+    }
+
+    fn open_at(db_path: &std::path::Path) -> Result<Self> {
+        let conn = Connection::open(db_path)?;
 
         // Enable WAL mode & foreign keys
         conn.execute_batch("
@@ -91,26 +109,15 @@ impl DatabaseManager {
                 );
             END;
 
+            -- `clips_fts` is an ordinary FTS5 table, so its rows are removed with a
+            -- plain DELETE. The FTS5 'delete' command is only valid when the caller
+            -- can supply the matching rowid, which the triggers do not have.
             CREATE TRIGGER clips_ad AFTER DELETE ON clips BEGIN
-                INSERT INTO clips_fts(clips_fts, id, content, source_app, ocr_text) 
-                VALUES(
-                    'delete', 
-                    old.id, 
-                    CASE WHEN old.category = 'image' THEN '' ELSE old.content END, 
-                    old.source_app, 
-                    COALESCE(old.ocr_text, '')
-                );
+                DELETE FROM clips_fts WHERE id = old.id;
             END;
 
             CREATE TRIGGER clips_au AFTER UPDATE ON clips BEGIN
-                INSERT INTO clips_fts(clips_fts, id, content, source_app, ocr_text) 
-                VALUES(
-                    'delete', 
-                    old.id, 
-                    CASE WHEN old.category = 'image' THEN '' ELSE old.content END, 
-                    old.source_app, 
-                    COALESCE(old.ocr_text, '')
-                );
+                DELETE FROM clips_fts WHERE id = old.id;
                 INSERT INTO clips_fts(id, content, source_app, ocr_text) 
                 VALUES (
                     new.id, 
@@ -129,6 +136,10 @@ impl DatabaseManager {
         // Migration for existing databases: ensure reminder_at and ocr_text columns exist
         let _ = conn.execute("ALTER TABLE clips ADD COLUMN reminder_at INTEGER;", []);
         let _ = conn.execute("ALTER TABLE clips ADD COLUMN ocr_text TEXT;", []);
+        // Sealed bytes for sensitive clips. Deliberately a separate column:
+        // `content` keeps the mask the UI shows and the FTS triggers index, so
+        // secrets never reach the search index.
+        let _ = conn.execute("ALTER TABLE clips ADD COLUMN secret_blob BLOB;", []);
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -154,6 +165,27 @@ impl DatabaseManager {
             ],
         )?;
         Ok(())
+    }
+
+    /// Store the sealed bytes of a sensitive clip.
+    pub fn set_secret_blob(&self, id: &str, blob: &[u8]) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let changed = conn.execute("UPDATE clips SET secret_blob = ?1 WHERE id = ?2", params![blob, id])?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
+    }
+
+    /// The sealed bytes of a sensitive clip, if it has any.
+    pub fn get_secret_blob(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT secret_blob FROM clips WHERE id = ?1")?;
+        let mut rows = stmt.query(params![id])?;
+        match rows.next()? {
+            Some(row) => Ok(row.get::<_, Option<Vec<u8>>>(0)?),
+            None => Ok(None),
+        }
     }
 
     pub fn update_ocr_text(&self, id: &str, ocr_text: &str) -> Result<()> {
@@ -395,10 +427,27 @@ impl DatabaseManager {
     }
 }
 
-fn dirs_data_dir() -> Option<PathBuf> {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        Some(PathBuf::from(appdata).join("clipz"))
-    } else {
-        None
+/// The per-user folder Clipz keeps its database in, absolute on every OS.
+///
+/// Windows keeps its historic %APPDATA%\clipz location, so existing installs
+/// keep their clips. macOS and Linux had no branch here at all, which is what
+/// produced the relative "./data" fallback and the startup crash.
+pub fn app_data_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("clipz"))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Library/Application Support/Clipz"))
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+            .map(|base| base.join("clipz"))
     }
 }

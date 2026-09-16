@@ -232,11 +232,28 @@ mod macos_tracker {
     }
 
     static mut MAC_PASTE_TX: Option<Sender<PasteEvent>> = None;
+    /// The live tap, so the callback can switch it back on (see below).
+    static mut MAC_TAP: CFMachPortRef = std::ptr::null_mut();
+
+    /// macOS kills a tap that answers too slowly and tells the callback by
+    /// sending one of these instead of a key event.
+    const K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
+    const K_CG_EVENT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 
     pub unsafe fn start_mac_tracking(tx: Sender<PasteEvent>) {
         MAC_PASTE_TX = Some(tx);
         let event_mask = 1u64 << 10; // KeyDown
         let tap = CGEventTapCreate(0, 0, 0, event_mask, mac_keyboard_callback, std::ptr::null_mut());
+        MAC_TAP = tap;
+        if tap.is_null() {
+            // Almost always means Accessibility permission was never granted.
+            // Silently doing nothing here is why the global shortcut can look
+            // simply broken, with no hint that macOS is the one refusing.
+            eprintln!(
+                "Clipz: could not install the keyboard tap, so the global shortcut is off. \
+                 Grant Clipz Accessibility access in System Settings > Privacy & Security."
+            );
+        }
         if !tap.is_null() {
             let source = CFMachPortCreateRunLoopSource(std::ptr::null_mut(), tap, 0);
             if !source.is_null() {
@@ -254,6 +271,19 @@ mod macos_tracker {
         event: CGEventRef,
         _refcon: *mut c_void,
     ) -> CGEventRef {
+        // Re-arm after macOS disables the tap.
+        //
+        // A tap that takes too long to return is switched off by the system,
+        // which reports it through this callback rather than any error. Without
+        // turning it back on the global shortcut works until the first hiccup
+        // and is dead from then on, with nothing logged.
+        if type_ == K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT || type_ == K_CG_EVENT_TAP_DISABLED_BY_USER_INPUT {
+            if !MAC_TAP.is_null() {
+                CGEventTapEnable(MAC_TAP, true);
+            }
+            return event;
+        }
+
         if type_ == 10 {
             let keycode = CGEventGetIntegerValueField(event, 9) as u32;
             let flags = CGEventGetFlags(event);
@@ -432,22 +462,130 @@ pub fn get_active_app_name() -> String {
 
 #[cfg(target_os = "macos")]
 pub fn get_active_app_name() -> String {
-    let output = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg("tell application \"System Events\" to get name of first process whose frontmost is true")
-        .output();
-    if let Ok(out) = output {
-        let app = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !app.is_empty() {
-            return app;
-        }
+    // Read the frontmost window's owner from the window server.
+    //
+    // This used to shell out to AppleScript, which cost roughly 150ms per clip
+    // and needed Automation permission. When the user never granted that (the
+    // prompt is easy to miss), every lookup failed quietly and every clip was
+    // filed under a placeholder. The window list needs no permission at all:
+    // owner NAMES are public, only window CONTENTS require Screen Recording.
+    // These Core Graphics calls are thread-safe, unlike AppKit, so the polling
+    // thread can use them directly.
+    use std::ffi::c_void;
+
+    type CFTypeRef = *const c_void;
+    type CFArrayRef = *const c_void;
+    type CFDictionaryRef = *const c_void;
+    type CFStringRef = *const c_void;
+
+    const ON_SCREEN_ONLY: u32 = 1 << 0;
+    const EXCLUDE_DESKTOP: u32 = 1 << 4;
+    const NULL_WINDOW_ID: u32 = 0;
+    const UTF8: u32 = 0x0800_0100;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> CFArrayRef;
+        fn CFArrayGetCount(array: CFArrayRef) -> isize;
+        fn CFArrayGetValueAtIndex(array: CFArrayRef, index: isize) -> CFTypeRef;
+        fn CFDictionaryGetValue(dict: CFDictionaryRef, key: CFTypeRef) -> CFTypeRef;
+        fn CFStringGetCString(s: CFStringRef, buffer: *mut i8, size: isize, encoding: u32) -> bool;
+        fn CFNumberGetValue(number: CFTypeRef, the_type: i32, value_ptr: *mut c_void) -> bool;
+        fn CFRelease(cf: CFTypeRef);
+        static kCGWindowOwnerName: CFStringRef;
+        static kCGWindowLayer: CFStringRef;
     }
-    "macOS Application".to_string()
+
+    unsafe {
+        let windows = CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, NULL_WINDOW_ID);
+        if windows.is_null() {
+            return "macOS Application".to_string();
+        }
+
+        let mut found: Option<String> = None;
+        for index in 0..CFArrayGetCount(windows) {
+            let window = CFArrayGetValueAtIndex(windows, index) as CFDictionaryRef;
+            if window.is_null() {
+                continue;
+            }
+
+            // Layer 0 is a normal application window. The menu bar, dock and
+            // other chrome sit on higher layers and would otherwise win, since
+            // the list is ordered front to back.
+            let layer_ref = CFDictionaryGetValue(window, kCGWindowLayer as CFTypeRef);
+            let mut layer: i32 = -1;
+            if layer_ref.is_null() || !CFNumberGetValue(layer_ref, 9, &mut layer as *mut i32 as *mut c_void) {
+                continue;
+            }
+            if layer != 0 {
+                continue;
+            }
+
+            let owner = CFDictionaryGetValue(window, kCGWindowOwnerName as CFTypeRef) as CFStringRef;
+            if owner.is_null() {
+                continue;
+            }
+
+            let mut buffer = [0i8; 256];
+            if CFStringGetCString(owner, buffer.as_mut_ptr(), buffer.len() as isize, UTF8) {
+                let name = std::ffi::CStr::from_ptr(buffer.as_ptr()).to_string_lossy().trim().to_string();
+                if !name.is_empty() {
+                    found = Some(name);
+                    break;
+                }
+            }
+        }
+
+        CFRelease(windows);
+        found.unwrap_or_else(|| "macOS Application".to_string())
+    }
 }
 
 #[cfg(all(not(windows), not(target_os = "macos")))]
 pub fn get_active_app_name() -> String {
     "Desktop".to_string()
+}
+
+/// The app a clip was copied FROM, never Clipz itself.
+///
+/// The foreground app at capture time is usually right, but not always: opening
+/// the notch makes Clipz frontmost, so anything copied from inside it, or
+/// copied while it holds focus, was being filed as "clipz" and the column lost
+/// its meaning. Falling back to the last app that WASN'T us keeps the answer
+/// useful, and `remember_foreground` keeps that value fresh.
+static LAST_EXTERNAL_APP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn is_clipz_itself(name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    name == "clipz" || name == "clipz.exe"
+}
+
+/// Sample the foreground app and remember it when it is not Clipz. Cheap enough
+/// for the clipboard poll loop on every platform.
+pub fn remember_foreground() {
+    let current = get_active_app_name();
+    if current.is_empty() || is_clipz_itself(&current) {
+        return;
+    }
+    if let Ok(mut last) = LAST_EXTERNAL_APP.lock() {
+        *last = Some(current);
+    }
+}
+
+pub fn source_app_name() -> String {
+    let current = get_active_app_name();
+    if !current.is_empty() && !is_clipz_itself(&current) {
+        if let Ok(mut last) = LAST_EXTERNAL_APP.lock() {
+            *last = Some(current.clone());
+        }
+        return current;
+    }
+    LAST_EXTERNAL_APP
+        .lock()
+        .ok()
+        .and_then(|last| last.clone())
+        .unwrap_or_else(|| "Unknown App".to_string())
 }
 
 fn chrono_now_secs() -> i64 {
