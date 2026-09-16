@@ -53,7 +53,17 @@ jobs:
       - name: Typecheck & build frontend
         run: npm run build
 
+      # Windows needs only the executable here: the MSIX is packaged from it
+      # below, and CI has no use for the MSI or NSIS installers. Skipping the
+      # bundlers also skips downloading WiX and NSIS from GitHub on every run,
+      # which is a third-party fetch that has already failed a build with an
+      # HTTP 500. release.yml still builds the installers.
+      - name: Build Tauri app (no bundles)
+        if: matrix.os == 'windows-latest'
+        run: npx tauri build --no-bundle
+
       - name: Build Tauri app (no publish)
+        if: matrix.os != 'windows-latest'
         run: npx tauri build
 
       # Catch MSIX packaging breakage on every PR rather than at submission
