@@ -55,3 +55,55 @@ jobs:
 
       - name: Build Tauri app (no publish)
         run: npx tauri build
+
+      # Catch MSIX packaging breakage on every PR rather than at submission
+      # time. Unsigned on purpose: the Store signs submissions itself.
+      - name: Package MSIX (Windows)
+        if: matrix.os == 'windows-latest'
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/msix/build-msix.ps1
+
+      - name: Upload MSIX artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipz-msix
+          path: target-msix/*.msix
+          if-no-files-found: error
+
+      # The Windows App Certification Kit runs the same suite Store
+      # certification does, so a failure here is a failure there. Running it on
+      # every Windows build means submissions stop being the place we find out.
+      - name: Windows App Certification Kit
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $appcert = 'C:\Program Files (x86)\Windows Kits\10\App Certification Kit\appcert.exe'
+          if (-not (Test-Path $appcert)) {
+            throw "appcert.exe not found at $appcert. The runner image no longer ships the App Certification Kit."
+          }
+
+          $package = Get-ChildItem 'target-msix\*.msix' | Select-Object -First 1
+          if (-not $package) { throw 'No MSIX package was produced.' }
+
+          $report = Join-Path $env:GITHUB_WORKSPACE 'target-msix\wack-report.xml'
+          & $appcert reset
+          & $appcert test -appxpackagepath $package.FullName -reportoutputpath $report
+          if (-not (Test-Path $report)) { throw 'The certification kit produced no report.' }
+
+          # appcert's own exit code does not reflect the verdict, so read it.
+          $result = ([xml](Get-Content $report)).REPORT.OVERALL_RESULT
+          Write-Host "Certification result: $result"
+          if ($result -ne 'PASS') {
+            Write-Host '--- failures ---'
+            ([xml](Get-Content $report)).SelectNodes('//*[@RESULT="FAIL"]') |
+              ForEach-Object { Write-Host "$($_.NAME): $($_.RESULT)" }
+            throw "App Certification Kit result: $result"
+          }
+
+      - name: Upload certification report
+        if: matrix.os == 'windows-latest' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipz-wack-report
+          path: target-msix/wack-report.xml
+          if-no-files-found: warn
