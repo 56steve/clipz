@@ -1,5 +1,3 @@
-#[cfg(windows)]
-use std::path::Path;
 use std::sync::mpsc::Sender;
 use std::thread;
 
@@ -11,9 +9,7 @@ use windows::{
         IsClipboardFormatAvailable, OpenClipboard,
     },
     Win32::System::Memory::GlobalLock,
-    Win32::System::ProcessStatus::GetModuleFileNameExW,
-    Win32::System::Threading::{OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ},
-    Win32::UI::WindowsAndMessaging::{DefWindowProcW, GetForegroundWindow, GetWindowThreadProcessId},
+    Win32::UI::WindowsAndMessaging::DefWindowProcW,
 };
 
 fn hash_content(s: &str) -> u64 {
