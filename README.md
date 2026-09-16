@@ -1,6 +1,6 @@
 # Clipz ✂️ — Clipboard Notch Hub
 
-![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)
+![Version](https://img.shields.io/badge/version-0.1.3-blue.svg)
 ![Framework](https://img.shields.io/badge/Tauri-v2-orange.svg)
 ![Language](https://img.shields.io/badge/Rust-TypeScript-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue.svg)
