@@ -41,6 +41,10 @@ arboard = "3.4"
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
 objc = "0.2"
+# Sensitive clips are encrypted with a key held in the login Keychain, the
+# macOS counterpart to DPAPI on Windows.
+aes-gcm = "0.10"
+rand = "0.8"
 
 
 
