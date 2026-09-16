@@ -45,6 +45,10 @@ impl ClipboardListener {
             loop {
                 thread::sleep(std::time::Duration::from_millis(150));
 
+                // Track who is in front BEFORE anything is copied: once the
+                // notch opens, Clipz is frontmost and the real answer is gone.
+                crate::paste_tracker::remember_foreground();
+
                 #[cfg(windows)]
                 {
                     let current_seq = unsafe { GetClipboardSequenceNumber() };
@@ -363,45 +367,14 @@ pub fn rgba_to_bmp_base64(img: &arboard::ImageData) -> String {
     format!("data:image/bmp;base64,{}", encoded)
 }
 
-#[cfg(windows)]
+/// Who the clip was copied FROM, on every platform.
+///
+/// This file used to carry its own copy of the Win32 foreground-window lookup,
+/// duplicating `paste_tracker`'s. That copy did not go through the
+/// "never blame Clipz itself" filter, so on Windows every clip taken while the
+/// notch had focus was still filed as clipz.exe. One path now, for both
+/// platforms.
 fn get_active_app_name() -> String {
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() {
-            return "Unknown App".to_string();
-        }
-
-        let mut process_id: u32 = 0;
-        GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-
-        if process_id == 0 {
-            return "Unknown App".to_string();
-        }
-
-        let process_handle = OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-            false,
-            process_id,
-        );
-
-        if let Ok(handle) = process_handle {
-            let mut buf = [0u16; 1024];
-            let len = GetModuleFileNameExW(handle, None, &mut buf);
-            let _ = windows::Win32::Foundation::CloseHandle(handle);
-
-            if len > 0 {
-                let full_path = String::from_utf16_lossy(&buf[..len as usize]);
-                if let Some(filename) = Path::new(&full_path).file_name() {
-                    return filename.to_string_lossy().to_string();
-                }
-            }
-        }
-
-        "Unknown App".to_string()
-    }
+    crate::paste_tracker::source_app_name()
 }
 
-#[cfg(not(windows))]
-fn get_active_app_name() -> String {
-    crate::paste_tracker::get_active_app_name()
-}
