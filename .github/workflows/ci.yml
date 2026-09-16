@@ -100,15 +100,24 @@ jobs:
           & $appcert test -appxpackagepath $package.FullName -reportoutputpath $report
           if (-not (Test-Path $report)) { throw 'The certification kit produced no report.' }
 
-          # appcert's own exit code does not reflect the verdict, so read it.
-          $result = ([xml](Get-Content $report)).REPORT.OVERALL_RESULT
-          Write-Host "Certification result: $result"
-          if ($result -ne 'PASS') {
-            Write-Host '--- failures ---'
-            ([xml](Get-Content $report)).SelectNodes('//*[@RESULT="FAIL"]') |
-              ForEach-Object { Write-Host "$($_.NAME): $($_.RESULT)" }
-            throw "App Certification Kit result: $result"
+          # appcert's own exit code does not reflect the verdict, and
+          # OVERALL_RESULT reports PASS even when individual tests fail — the
+          # blocked-executable failure it hid is exactly the kind of thing the
+          # Store rejects for. Judge on the tests themselves.
+          $xml = [xml](Get-Content $report)
+          $overall = $xml.REPORT.OVERALL_RESULT
+          $failed = @($xml.SelectNodes('//TEST') | Where-Object { $_.RESULT.'#cdata-section'.Trim() -ne 'PASS' })
+
+          Write-Host "Overall: $overall; $($failed.Count) failing test(s)"
+          foreach ($test in $failed) {
+            Write-Host "FAIL: $($test.NAME)"
+            foreach ($message in $test.MESSAGES.MESSAGE) { Write-Host "    $($message.TEXT)" }
           }
+
+          if ($failed.Count -gt 0) {
+            throw "App Certification Kit: $($failed.Count) test(s) failed."
+          }
+          if ($overall -ne 'PASS') { throw "App Certification Kit result: $overall" }
 
       - name: Upload certification report
         if: matrix.os == 'windows-latest' && always()
