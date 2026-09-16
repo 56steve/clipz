@@ -37,6 +37,10 @@ jobs:
       - name: Build Production Executables
         run: npx tauri build
 
+      - name: Package MSIX (Windows)
+        if: matrix.os == 'windows-latest'
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/msix/build-msix.ps1
+
       - name: Publish GitHub Release Assets
         uses: softprops/action-gh-release@v2
         with:
@@ -44,15 +48,18 @@ jobs:
           name: 'Clipz ${{ github.ref_name }}'
           body: |
             Official production release of Clipz Desktop Clipboard Notch Hub for Windows and macOS.
-            
+
             ### Downloads
-            - **Windows**: `Clipz_0.1.0_x64-setup.exe` (Installer) or `clipz.exe` (Portable)
-            - **macOS**: `Clipz_0.1.0_x64.dmg` / `Clipz.app.tar.gz`
+            - **Windows**: the `-setup.exe` installer, the portable `clipz.exe`, or the `.msix` package
+            - **macOS**: the `.dmg`, or `Clipz.app.tar.gz`
+
+            These builds are not code-signed yet. Windows shows a SmartScreen warning ("More info" then "Run anyway"); macOS reports the app as damaged unless you clear the quarantine flag.
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app.tar.gz
             src-tauri/target/release/clipz.exe
+            target-msix/*.msix
           fail_on_unmatched_files: false
           draft: false
           prerelease: false

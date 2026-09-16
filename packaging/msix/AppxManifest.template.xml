@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest template for Clipz.
+
+  Tracked in the repo on purpose: the previous copy lived in msix_stage/, which
+  .gitignore excludes, so CI could never see it and the package could only ever
+  be built by hand on one machine.
+
+  {{VERSION}} is filled in by build-msix.ps1 from the app's own version, because
+  the Store rejects a package whose manifest version disagrees with the build,
+  and the hand-maintained copy had drifted (0.1.1.0 against an 0.1.2 app).
+
+  Identity Name and Publisher MUST match the values Partner Center assigns to
+  this app. Changing them breaks submission.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="SteveJason.Clipz"
+    Publisher="CN=61924769-CA3C-407A-87C7-A731D88890AB"
+    Version="{{VERSION}}"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Clipz</DisplayName>
+    <PublisherDisplayName>Steve Jason</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+    <PackageDependency Name="Microsoft.VCLibs.140.00" MinVersion="14.0.30704.0" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="Clipz.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <!--
+        No uap:SplashScreen element. The previous manifest pointed at
+        Assets\SplashScreen.png, which does not exist anywhere in this repo, and
+        makeappx refuses to pack a manifest that references a missing asset.
+        Splash screens are optional for full-trust desktop apps; add the element
+        back once a real 620x300 asset exists.
+      -->
+      <uap:VisualElements
+        DisplayName="Clipz"
+        Description="Smart Cross-Platform Clipboard Manager"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
