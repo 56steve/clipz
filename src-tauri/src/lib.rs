@@ -503,11 +503,21 @@ fn disable_and_uninstall_app(
     // 2. Remove platform-specific autostart entries
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        let _ = std::process::Command::new("reg")
-            .args(&["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "Clipz", "/f"])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .output();
+        use windows::core::PCWSTR;
+        use windows::Win32::System::Registry::{RegDeleteKeyValueW, HKEY_CURRENT_USER};
+
+        // The registry API rather than `reg.exe`: spawning a process to delete
+        // one value trips the Store's blocked-executable check for cmd.
+        let subkey = wide("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+        let value = wide("Clipz");
+        unsafe {
+            // Absent value is the normal case; there is nothing to report.
+            let _ = RegDeleteKeyValueW(
+                HKEY_CURRENT_USER,
+                PCWSTR(subkey.as_ptr()),
+                PCWSTR(value.as_ptr()),
+            );
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -544,6 +554,12 @@ fn disable_and_uninstall_app(
 /// native dialog instead. Shelled out per platform rather than pulled from a
 /// dialog crate: this runs before the Tauri app exists, and one startup error
 /// path does not justify another dependency.
+/// A null-terminated UTF-16 string, as every Win32 `W` function expects.
+#[cfg(windows)]
+fn wide(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
 fn fatal_startup_error(message: &str) -> ! {
     eprintln!("Clipz cannot start: {message}");
 
@@ -559,14 +575,23 @@ fn fatal_startup_error(message: &str) -> ! {
 
     #[cfg(windows)]
     {
-        let detail = message.replace('"', "'").replace('$', "`$");
-        let script = format!(
-            "Add-Type -AssemblyName PresentationFramework; \
-             [void][System.Windows.MessageBox]::Show(\"Clipz cannot start.`n`n{detail}\", \"Clipz\", \"OK\", \"Error\")"
-        );
-        let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
-            .status();
+        use windows::core::PCWSTR;
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
+
+        // MessageBoxW rather than a PowerShell one-liner: a packaged app that
+        // references powershell.exe fails the Store's blocked-executable check,
+        // and shelling out to show an error is absurd anyway.
+        let body = wide(&format!("Clipz cannot start.\r\n\r\n{message}"));
+        let title = wide("Clipz");
+        unsafe {
+            MessageBoxW(
+                HWND::default(),
+                PCWSTR(body.as_ptr()),
+                PCWSTR(title.as_ptr()),
+                MB_OK | MB_ICONERROR,
+            );
+        }
     }
 
     std::process::exit(1);
