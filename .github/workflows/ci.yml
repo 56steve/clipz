@@ -53,18 +53,25 @@ jobs:
       - name: Typecheck & build frontend
         run: npm run build
 
-      # Windows needs only the executable here: the MSIX is packaged from it
-      # below, and CI has no use for the MSI or NSIS installers. Skipping the
-      # bundlers also skips downloading WiX and NSIS from GitHub on every run,
-      # which is a third-party fetch that has already failed a build with an
-      # HTTP 500. release.yml still builds the installers.
-      - name: Build Tauri app (no bundles)
-        if: matrix.os == 'windows-latest'
-        run: npx tauri build --no-bundle
-
-      - name: Build Tauri app (no publish)
-        if: matrix.os != 'windows-latest'
-        run: npx tauri build
+      # Build every distributable format, so a packaging regression surfaces
+      # here rather than on release day: MSI, NSIS setup and the raw exe on
+      # Windows, .app and .dmg on macOS, with the MSIX packaged below.
+      #
+      # Tauri downloads the WiX and NSIS toolchains from GitHub on first use
+      # and one of those fetches has already failed a run with an HTTP 500, so
+      # retry instead of failing on someone else's outage.
+      - name: Build Tauri app (all bundles)
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if npx tauri build; then
+              exit 0
+            fi
+            echo "::warning::tauri build failed on attempt $attempt"
+            sleep 30
+          done
+          echo "::error::tauri build failed three times"
+          exit 1
 
       # Catch MSIX packaging breakage on every PR rather than at submission
       # time. Unsigned on purpose: the Store signs submissions itself.
@@ -72,12 +79,53 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/msix/build-msix.ps1
 
-      - name: Upload MSIX artifact
+      # Fails the run if a format silently stopped being produced, which an
+      # artifact upload alone would not catch.
+      - name: Verify Windows formats
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          set -e
+          for pattern in \
+            "src-tauri/target/release/clipz.exe" \
+            "src-tauri/target/release/bundle/msi/"*.msi \
+            "src-tauri/target/release/bundle/nsis/"*-setup.exe \
+            "target-msix/"*.msix
+          do
+            if [ ! -f "$pattern" ]; then echo "::error::missing build output: $pattern"; exit 1; fi
+            ls -l "$pattern"
+          done
+
+      - name: Verify macOS formats
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -e
+          app="src-tauri/target/release/bundle/macos/Clipz.app"
+          if [ ! -x "$app/Contents/MacOS/clipz" ]; then echo "::error::missing or non-executable $app"; exit 1; fi
+          du -sh "$app"
+          dmg=(src-tauri/target/release/bundle/dmg/*.dmg)
+          if [ ! -f "${dmg[0]}" ]; then echo "::error::no .dmg was produced"; exit 1; fi
+          ls -l "${dmg[0]}"
+
+      - name: Upload Windows packages
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: clipz-msix
-          path: target-msix/*.msix
+          name: clipz-windows
+          path: |
+            src-tauri/target/release/clipz.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            target-msix/*.msix
+          if-no-files-found: error
+
+      - name: Upload macOS packages
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipz-macos
+          path: src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
       # The Windows App Certification Kit runs the same suite Store
