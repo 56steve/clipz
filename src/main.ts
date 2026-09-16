@@ -56,6 +56,9 @@ class ClipzApp {
   private reminderCheckInterval: any = null;
 
   private deleteModal: HTMLElement;
+  private ocrModal: HTMLElement | null = null;
+  private ocrModalText: HTMLElement | null = null;
+  private ocrModalTextValue: string = '';
   private deleteClipPreview: HTMLElement;
   private closeDeleteModalBtn: HTMLElement;
   private cancelDeleteBtn: HTMLElement;
@@ -113,6 +116,26 @@ class ClipzApp {
   private dragStartX: number = 0;
   private dragStartY: number = 0;
   private isDraggingWindow: boolean = false;
+  /// True while the pointer sits over the notch. A blur that arrives then is
+  /// the window manager taking focus back, not the user leaving.
+  private pointerInsideNotch: boolean = false;
+  private blurCollapseTimer: any = null;
+  private lastInteractionAt: number = 0;
+  private lastToggleAt: number = 0;
+
+
+  /// Is the pointer over the notch RIGHT NOW?
+  ///
+  /// `mouseenter` alone is not enough: when the pill grows under a stationary
+  /// cursor the pointer never "enters" anything, so the flag stays false while
+  /// the user is plainly pointing at the drawer. `:hover` is recomputed by the
+  /// engine on every layout change, so it stays true across the resize.
+  private isPointerOverNotch(): boolean {
+    try {
+      if (this.notchShell.matches(':hover')) return true;
+    } catch (_) {}
+    return this.pointerInsideNotch;
+  }
   private expandCooldownUntil: number = 0;
 
   constructor() {
@@ -146,6 +169,8 @@ class ClipzApp {
     this.closeRemindersListModalBtn = document.getElementById('close-reminders-list-modal-btn')!;
 
     this.deleteModal = document.getElementById('delete-modal')!;
+    this.ocrModal = document.getElementById('ocr-modal');
+    this.ocrModalText = document.getElementById('ocr-modal-text');
     this.deleteClipPreview = document.getElementById('delete-clip-preview')!;
     this.closeDeleteModalBtn = document.getElementById('close-delete-modal-btn')!;
     this.cancelDeleteBtn = document.getElementById('cancel-delete-btn')!;
@@ -198,6 +223,7 @@ class ClipzApp {
     if (this.reminderModal) this.reminderModal.classList.add('hidden');
     if (this.remindersListModal) this.remindersListModal.classList.add('hidden');
     if (this.deleteModal) this.deleteModal.classList.add('hidden');
+    if (this.ocrModal) this.ocrModal.classList.add('hidden');
     if (this.imageLightbox) this.imageLightbox.classList.add('hidden');
     if (this.uninstallModal) this.uninstallModal.classList.add('hidden');
   }
@@ -208,6 +234,7 @@ class ClipzApp {
       (!!this.reminderModal && !this.reminderModal.classList.contains('hidden')) ||
       (!!this.remindersListModal && !this.remindersListModal.classList.contains('hidden')) ||
       (!!this.deleteModal && !this.deleteModal.classList.contains('hidden')) ||
+      (!!this.ocrModal && !this.ocrModal.classList.contains('hidden')) ||
       (!!this.imageLightbox && !this.imageLightbox.classList.contains('hidden')) ||
       (!!this.uninstallModal && !this.uninstallModal.classList.contains('hidden'))
     );
@@ -271,35 +298,170 @@ class ClipzApp {
     }
   }
 
+  /// Collapse the drawer only for a blur that STICKS.
+  ///
+  /// This window is always-on-top and skips the taskbar, so focus regularly
+  /// bounces off it: expand, lose focus to whatever was in front, get it back a
+  /// frame later. Acting on the raw blur shut the drawer about a second after
+  /// it opened. Waiting a beat and re-checking absorbs the bounce, and a real
+  /// switch to another app still collapses it. A pointer resting on the notch
+  /// vetoes the collapse outright: the user is plainly still using it.
+  private scheduleBlurCollapse() {
+    clearTimeout(this.blurCollapseTimer);
+    this.blurCollapseTimer = setTimeout(() => {
+      const hovering = this.isPointerOverNotch();
+      const busy = Date.now() - this.lastInteractionAt < 1200;
+      if (hovering || busy) return;
+      if (document.hasFocus()) return;
+      if (this.currentState === 'expanded' && Date.now() >= this.expandCooldownUntil && !this.isAnyModalOpen()) {
+        this.setNotchState('pill');
+      }
+    }, 350);
+  }
+
+  /// Close the drawer shortly after the pointer leaves it.
+  ///
+  /// Delayed rather than immediate because the pointer routinely leaves for a
+  /// moment without the user being done: clipping the edge on the way to a
+  /// scrollbar, or crossing a gap between elements. Re-entering cancels it.
+  /// Three things veto the close outright, because in each the user is still
+  /// working in the drawer even though the pointer is elsewhere: an open
+  /// dialog, a focused text field (they are typing a search or a reminder),
+  /// and the pointer having come back by the time the timer fires.
+  private scheduleHoverCollapse() {
+    clearTimeout(this.hoverCollapseTimer);
+    this.hoverCollapseTimer = setTimeout(() => {
+      if (this.currentState !== 'expanded') return;
+      if (this.pointerInsideNotch) return;
+      if (this.isAnyModalOpen()) return;
+      // Only a field with something IN it counts as "still working".
+      // Expanding focuses the search box automatically, so treating any focused
+      // field as busy vetoed every single close and the drawer never shut.
+      const focused = document.activeElement as HTMLInputElement | null;
+      const typing =
+        !!focused &&
+        (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA') &&
+        ((focused.value ?? '') as string).length > 0;
+      if (typing) return;
+      this.setNotchState('pill');
+    }, 450);
+  }
+
+  /// Show recognised text. `text` null means recognition is still running;
+  /// empty with a `placeholder` means there was nothing to show.
+  private openOcrModal(text: string | null, placeholder?: string) {
+    if (!this.ocrModal || !this.ocrModalText) return;
+
+    const copyBtn = document.getElementById('copy-ocr-text-btn') as HTMLButtonElement | null;
+    if (text === null) {
+      this.ocrModalTextValue = '';
+      this.ocrModalText.textContent = 'Reading text from image…';
+      if (copyBtn) copyBtn.disabled = true;
+    } else if (text.trim().length === 0) {
+      this.ocrModalTextValue = '';
+      this.ocrModalText.textContent = placeholder ?? 'No text found in this image.';
+      if (copyBtn) copyBtn.disabled = true;
+    } else {
+      this.ocrModalTextValue = text;
+      this.ocrModalText.textContent = text;
+      if (copyBtn) copyBtn.disabled = false;
+    }
+
+    this.ocrModal.classList.remove('hidden');
+  }
+
+  private initOcrModalEvents() {
+    if (!this.ocrModal) return;
+    const close = () => this.ocrModal?.classList.add('hidden');
+
+    document.getElementById('close-ocr-modal-btn')?.addEventListener('click', close);
+    document.getElementById('close-ocr-btn')?.addEventListener('click', close);
+    this.ocrModal.addEventListener('click', (e) => {
+      if (e.target === this.ocrModal) close();
+    });
+
+    document.getElementById('copy-ocr-text-btn')?.addEventListener('click', async () => {
+      if (!this.ocrModalTextValue) return;
+      await invoke('copy_to_clipboard', { id: null, content: this.ocrModalTextValue, auto_paste: false });
+      this.showToast('✓ Text copied from image');
+      close();
+    });
+  }
+
   private initEventListeners() {
-    const handleDragStart = async (e: MouseEvent) => {
+    // Pixels the pointer must travel before a press becomes a window drag.
+    const DRAG_THRESHOLD_PX = 4;
+
+    // Start the native drag only once the pointer actually MOVES.
+    //
+    // This used to call startDragging() on every mousedown. The OS then took
+    // over with its own modal drag loop, which swallows the mouseup, so the
+    // click event never arrived and the notch could never be opened: it could
+    // only be dragged. Same on Windows and macOS, since the drag loop belongs
+    // to the window manager either way. Waiting for movement keeps dragging
+    // intact and gives plain clicks back.
+    const handleDragStart = (e: MouseEvent) => {
       // Don't trigger window drag if clicking action buttons, search, or cards
       if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn, .clip-card, .search-row, .settings-panel')) return;
-      if (e.button === 0) {
-        this.isDraggingWindow = false;
-        this.dragStartTime = Date.now();
-        this.dragStartX = e.screenX;
-        this.dragStartY = e.screenY;
+      if (e.button !== 0) return;
 
-        // Native OS window dragging
-        try {
-          await getCurrentWindow().startDragging();
-        } catch (_) {
-          try {
-            await invoke('start_dragging');
-          } catch (_) {}
-        }
-      }
+      this.isDraggingWindow = false;
+      this.dragStartTime = Date.now();
+      this.dragStartX = e.screenX;
+      this.dragStartY = e.screenY;
+
+      const stopWatching = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', stopWatching);
+      };
+
+      const onMove = (move: MouseEvent) => {
+        const travelled = Math.hypot(move.screenX - this.dragStartX, move.screenY - this.dragStartY);
+        if (travelled < DRAG_THRESHOLD_PX) return;
+        stopWatching();
+        this.isDraggingWindow = true;
+        void getCurrentWindow()
+          .startDragging()
+          .catch(async () => {
+            try {
+              await invoke('start_dragging');
+            } catch (_) {}
+          });
+      };
+
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', stopWatching);
     };
+
+    const noteInteraction = () => {
+      this.lastInteractionAt = Date.now();
+    };
+    this.notchShell.addEventListener('mousemove', noteInteraction);
+    this.notchShell.addEventListener('mousedown', noteInteraction);
+    this.notchShell.addEventListener('keydown', noteInteraction);
+
+    this.notchShell.addEventListener('mouseenter', () => {
+      this.pointerInsideNotch = true;
+      clearTimeout(this.hoverCollapseTimer);
+      noteInteraction();
+    });
+    this.initOcrModalEvents();
+
+    this.notchShell.addEventListener('mouseleave', () => {
+      this.pointerInsideNotch = false;
+      this.scheduleHoverCollapse();
+    });
 
     this.notchHeader.addEventListener('mousedown', handleDragStart);
     this.notchShell.addEventListener('mousedown', handleDragStart);
 
     this.notchHeader.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn')) return;
-      const dragDuration = this.dragStartTime > 0 ? Date.now() - this.dragStartTime : 0;
-      const moveDist = this.dragStartX !== 0 ? Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY) : 0;
-      if (dragDuration > 300 || moveDist > 5) {
+      // The shell wraps the header and has the same handler; without this the
+      // one click toggles twice and the drawer closes as fast as it opened.
+      e.stopPropagation();
+      if (this.isDraggingWindow) {
+        this.isDraggingWindow = false;
         return;
       }
       this.stopPillBounce();
@@ -308,9 +470,10 @@ class ClipzApp {
 
     this.notchShell.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button, input, a, .icon-btn, .filter-btn, .clip-card, .search-row, .settings-panel')) return;
-      const dragDuration = this.dragStartTime > 0 ? Date.now() - this.dragStartTime : 0;
-      const moveDist = this.dragStartX !== 0 ? Math.hypot(e.screenX - this.dragStartX, e.screenY - this.dragStartY) : 0;
-      if (dragDuration > 300 || moveDist > 5) return;
+      if (this.isDraggingWindow) {
+        this.isDraggingWindow = false;
+        return;
+      }
 
       this.stopPillBounce();
       this.toggleExpand();
@@ -335,12 +498,15 @@ class ClipzApp {
       });
     }
 
-    // Collapse back to micro-pill when expanded window loses focus (e.g. clicking background anywhere on screen or another app)
-    window.addEventListener('blur', () => {
-      if (this.currentState === 'expanded' && Date.now() >= this.expandCooldownUntil && !this.isAnyModalOpen()) {
-        this.setNotchState('pill');
-      }
-    });
+    // Collapse back to micro-pill when expanded window loses focus (e.g. clicking
+    // background anywhere on screen or another app).
+    //
+    // Same guard as the `tauri://blur` listener: while the pointer is still on
+    // the notch, a blur is the window manager reclaiming focus from an
+    // always-on-top window, not the user walking away. Without this the drawer
+    // shut itself about a second after opening.
+    window.addEventListener('blur', () => this.scheduleBlurCollapse());
+    window.addEventListener('focus', () => clearTimeout(this.blurCollapseTimer));
 
     // Collapse back to micro-pill when clicking on background outside notch shell
     document.addEventListener('click', (e: MouseEvent) => {
@@ -557,9 +723,26 @@ class ClipzApp {
       });
 
       // Listen for window blur event from Tauri native window manager
-      await listen('tauri://blur', () => {
-        if (this.currentState === 'expanded' && Date.now() >= this.expandCooldownUntil && !this.isAnyModalOpen()) {
-          this.setNotchState('pill');
+      //
+      // A blur only means "the user moved on" when the pointer has actually
+      // left the notch. This window is always-on-top and skips the taskbar, so
+      // after expanding, focus frequently bounces straight back to whatever app
+      // was in front: that fired a blur about a second after opening and
+      // snapped the drawer shut while the user was still pointing at it, on
+      // Windows and macOS alike. Ignoring blurs while the pointer is inside
+      // keeps click-outside-to-close working and stops the self-closing.
+      await listen('tauri://blur', () => this.scheduleBlurCollapse());
+      await listen('tauri://focus', () => clearTimeout(this.blurCollapseTimer));
+
+      // The Rust side polls the real cursor, because a web view stops getting
+      // mouse events the moment the pointer leaves the window.
+      await listen<boolean>('pointer-outside', (event) => {
+        if (event.payload) {
+          this.pointerInsideNotch = false;
+          this.scheduleHoverCollapse();
+        } else {
+          this.pointerInsideNotch = true;
+          clearTimeout(this.hoverCollapseTimer);
         }
       });
 
@@ -644,55 +827,18 @@ class ClipzApp {
       });
   }
 
+  /// Reflect freshly recognised text on the card's OCR button.
+  ///
+  /// Recognition finishes after the card is already on screen, so the button
+  /// starts as "read text" and becomes "copy text" without a re-render.
   private updateCardOcrDisplay(id: string, text: string) {
-    const cardEl = this.clipsContainer.querySelector(`[data-id="${id}"]`);
-    if (!cardEl) return;
-    const bodyEl = cardEl.querySelector('.clip-body');
-    if (!bodyEl) return;
+    const card = this.clipsContainer.querySelector(`.clip-card[data-id="${id}"]`);
+    const button = card?.querySelector('.ocr-btn') as HTMLButtonElement | null;
+    if (!button) return;
 
-    // Check if OCR chip already exists
-    if (bodyEl.querySelector('.clip-ocr-chip')) {
-      const textSpan = bodyEl.querySelector('.ocr-chip-text');
-      if (textSpan) textSpan.textContent = text.replace(/\r?\n/g, ' ').trim();
-      const popoverText = cardEl.querySelector('.ocr-popover-text');
-      if (popoverText) popoverText.textContent = text;
-      return;
-    }
-
-    const cleanOCR = text.replace(/\r?\n/g, ' ').trim();
-    const chipDiv = document.createElement('div');
-    chipDiv.className = 'clip-ocr-chip';
-    chipDiv.title = 'Click to view/copy recognized text';
-    chipDiv.innerHTML = `
-      <span class="ocr-chip-icon">📝</span>
-      <span class="ocr-chip-text">${this.escapeHTML(cleanOCR)}</span>
-      <button class="ocr-chip-copy-btn" title="Copy OCR Text">Copy</button>
-    `;
-
-    const popoverDiv = document.createElement('div');
-    popoverDiv.className = 'ocr-hover-popover';
-    popoverDiv.innerHTML = `
-      <div class="ocr-popover-title">📝 Recognized Text</div>
-      <div class="ocr-popover-text">${this.escapeHTML(text)}</div>
-    `;
-
-    const metaEl = bodyEl.querySelector('.clip-sub-meta');
-    if (metaEl) {
-      bodyEl.insertBefore(chipDiv, metaEl);
-    } else {
-      bodyEl.appendChild(chipDiv);
-    }
-    cardEl.appendChild(popoverDiv);
-
-    const copyBtn = chipDiv.querySelector('.ocr-chip-copy-btn');
-    if (copyBtn) {
-      copyBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        await invoke('copy_to_clipboard', { id: null, content: text, auto_paste: false });
-        this.showToast('✓ OCR text copied');
-      });
-    }
+    const found = text.trim().length > 0;
+    button.classList.toggle('has-text', found);
+    button.title = found ? 'Show text found in this image' : 'Read text from this image';
   }
 
   private async loadClips() {
@@ -916,6 +1062,20 @@ class ClipzApp {
   }
 
   private toggleExpand() {
+    // Ignore a second toggle arriving in the same gesture.
+    //
+    // The notch header sits INSIDE the notch shell and both had their own click
+    // listener, so a single click on the header ran this twice: open, then
+    // close again about ten milliseconds later. That is the "it opens and
+    // instantly snaps back" bug, and it hit Windows and macOS alike. The
+    // duplicate listener is dealt with separately (the header now stops the
+    // event bubbling); this guard makes any future double-fire harmless.
+    const now = Date.now();
+    if (now - this.lastToggleAt < 250) {
+      return;
+    }
+    this.lastToggleAt = now;
+
     if (this.currentState === 'expanded') {
       this.setNotchState('pill');
     } else {
@@ -934,6 +1094,7 @@ class ClipzApp {
   private getFilteredClips(): ClipItem[] {
     if (this.currentFilter === 'all') return this.clips;
     if (this.currentFilter === 'sensitive') return this.clips.filter((c) => c.is_sensitive || c.category === 'sensitive');
+    if (this.currentFilter === 'pinned') return this.clips.filter((c) => c.is_pinned);
     return this.clips.filter((c) => c.category === this.currentFilter);
   }
 
@@ -1019,28 +1180,21 @@ class ClipzApp {
     const contentHTML = this.renderClipPreviewText(clip);
     const hasActiveReminder = clip.reminder_at && clip.reminder_at * 1000 > Date.now();
 
-    let ocrChipHTML = '';
-    let ocrPopoverHTML = '';
-    if (clip.category === 'image' && !clip.is_sensitive) {
-      if (clip.ocr_text && clip.ocr_text.trim().length > 0) {
-        const cleanOCR = clip.ocr_text.replace(/\r?\n/g, ' ').trim();
-        ocrChipHTML = `
-          <div class="clip-ocr-chip" title="Click to view/copy recognized text">
-            <span class="ocr-chip-icon">📝</span>
-            <span class="ocr-chip-text">${this.escapeHTML(cleanOCR)}</span>
-            <button class="ocr-chip-copy-btn" data-id="${clip.id}" title="Copy OCR Text">Copy</button>
-          </div>
-        `;
-        ocrPopoverHTML = `
-          <div class="ocr-hover-popover">
-            <div class="ocr-popover-title">📝 Recognized Text</div>
-            <div class="ocr-popover-text">${this.escapeHTML(clip.ocr_text)}</div>
-          </div>
-        `;
-      } else {
-        this.requestOcrExtraction(clip.id);
-      }
+    // Images get a text-recognition button in the action row instead of a strip
+    // of recognised text under the preview: the strip repeated content the user
+    // could already see in the image, pushed the real preview around, and
+    // carried a second "Copy" that did something different from the card's own.
+    const isOcrCandidate = clip.category === 'image' && !clip.is_sensitive;
+    const hasOcrText = !!(clip.ocr_text && clip.ocr_text.trim().length > 0);
+    if (isOcrCandidate && !hasOcrText) {
+      this.requestOcrExtraction(clip.id);
     }
+    const ocrButtonHTML = isOcrCandidate
+      ? `
+            <button class="action-btn ocr-btn ${hasOcrText ? 'has-text' : ''}" title="${hasOcrText ? 'Show text found in this image' : 'Read text from this image'}">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="10" x2="17" y2="10"/><line x1="7" y1="14" x2="13" y2="14"/></svg>
+            </button>`
+      : '';
 
     return `
       <div class="clip-card ${clip.is_pinned ? 'pinned' : ''} ${isSelected ? 'selected' : ''}" data-id="${clip.id}">
@@ -1051,7 +1205,6 @@ class ClipzApp {
           <div class="clip-main-text ${clip.category === 'code' ? 'code-font' : ''}">
             ${contentHTML}
           </div>
-          ${ocrChipHTML}
           <div class="clip-sub-meta">
             <span>${this.escapeHTML(clip.source_app)}</span>
             <span class="meta-dot">•</span>
@@ -1060,10 +1213,12 @@ class ClipzApp {
             ${clip.reminder_at ? `<span class="meta-dot">•</span><span style="color:#f59e0b;">⏰ ${new Date(clip.reminder_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>` : ''}
           </div>
         </div>
-        ${ocrPopoverHTML}
         <div class="clip-right-actions">
           ${isSelected ? '<span class="enter-badge" title="Press Enter to Copy">↵</span>' : ''}
-          <div class="action-btn-group">
+          <div class="action-btn-group">${ocrButtonHTML}
+            <button class="action-btn pin-btn ${clip.is_pinned ? 'active-pin' : ''}" title="${clip.is_pinned ? 'Remove from favourites' : 'Add to favourites'}">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </button>
             <button class="action-btn reminder-btn ${hasActiveReminder ? 'active-reminder' : ''}" title="${clip.reminder_at ? 'Reminder set for ' + new Date(clip.reminder_at * 1000).toLocaleString() : 'Set Reminder'}">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
             </button>
@@ -1085,20 +1240,50 @@ class ClipzApp {
       const id = card.getAttribute('data-id')!;
       const clip = this.clips.find((c) => c.id === id);
 
+      const pinBtn = card.querySelector('.pin-btn');
       const reminderBtn = card.querySelector('.reminder-btn');
       const copyBtn = card.querySelector('.copy-btn');
       const deleteBtn = card.querySelector('.delete-btn');
       const revealBtn = card.querySelector('.reveal-btn');
-      const ocrChipCopyBtn = card.querySelector('.ocr-chip-copy-btn');
+      const ocrBtn = card.querySelector('.ocr-btn');
 
-      if (ocrChipCopyBtn) {
-        ocrChipCopyBtn.addEventListener('click', async (e) => {
+      if (ocrBtn) {
+        ocrBtn.addEventListener('click', async (e) => {
           e.stopPropagation();
           e.stopImmediatePropagation();
-          if (clip && clip.ocr_text) {
-            await invoke('copy_to_clipboard', { id: null, content: clip.ocr_text, auto_paste: false });
-            this.showToast('✓ OCR text copied');
+          if (!clip) return;
+
+          // Show the text first. Copying straight to the clipboard replaced
+          // whatever the user had copied, sight unseen, and OCR output is often
+          // wrong enough that they want to read it before using it.
+          if (clip.ocr_text && clip.ocr_text.trim().length > 0) {
+            this.openOcrModal(clip.ocr_text);
+            return;
           }
+
+          // Recognition normally finishes in the background after capture; this
+          // is the early-click path, so run it now rather than doing nothing.
+          this.openOcrModal(null);
+          try {
+            const text = await invoke<string | null>('extract_clip_ocr', { id: clip.id });
+            if (text && text.trim().length > 0) {
+              clip.ocr_text = text;
+              this.updateCardOcrDisplay(clip.id, text);
+              this.openOcrModal(text);
+            } else {
+              this.openOcrModal('', 'No text found in this image.');
+            }
+          } catch (_) {
+            this.openOcrModal('', 'Could not read the text in this image.');
+          }
+        });
+      }
+
+      if (pinBtn) {
+        pinBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          this.togglePin(id);
         });
       }
 
@@ -1650,11 +1835,21 @@ class ClipzApp {
     }
   }
 
+  /// Mirrors the database ordering: favourites first, newest first within each
+  /// group.
+  private sortClips() {
+    this.clips.sort((a, b) => {
+      if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+      return b.created_at - a.created_at;
+    });
+  }
+
   private async togglePin(id: string) {
     try {
       const newPinnedState = await invoke<boolean>('toggle_pin', { id });
       const clip = this.clips.find((c) => c.id === id);
       if (clip) clip.is_pinned = newPinnedState;
+      this.sortClips();
       this.renderClips();
     } catch (err) {
       console.error('Failed to toggle pin:', err);
