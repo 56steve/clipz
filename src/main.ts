@@ -13,6 +13,11 @@ interface ClipItem {
   paste_count: number;
   reminder_at?: number | null;
   ocr_text?: string;
+  /// Small preview for image clips. List results carry this instead of the
+  /// image itself, which is megabytes of base64.
+  thumbnail?: string | null;
+  /// True when `content` is only the start of a long clip.
+  truncated?: boolean;
 }
 
 interface PasteLogItem {
@@ -103,6 +108,12 @@ class ClipzApp {
   private clips: ClipItem[] = [];
   private blobUrlMap: Map<string, string> = new Map();
   private pendingOcrIds: Set<string> = new Set();
+  private ocrQueue: string[] = [];
+  private ocrRunning = false;
+  private hasOpenedDrawer = false;
+  /// Long enough for the window to paint and become interactive before any
+  /// recognition starts.
+  private readonly OCR_IDLE_DELAY_MS = 4000;
   private currentFilter: string = 'all';
   private searchDebounceTimer: any = null;
   private hoverCollapseTimer: any = null;
@@ -137,6 +148,12 @@ class ClipzApp {
     return this.pointerInsideNotch;
   }
   private expandCooldownUntil: number = 0;
+  /// True from the moment the drawer opens until the pointer is first seen
+  /// inside it. Opening resizes the window, which can leave the pointer outside
+  /// the new bounds through no action of the user's — and opening by keyboard
+  /// means the pointer was never there at all. Treating either as "the mouse
+  /// left" closed the drawer immediately after it opened.
+  private awaitingPointerEntry = false;
 
   constructor() {
     this.notchShell = document.getElementById('notch-shell')!;
@@ -207,6 +224,15 @@ class ClipzApp {
     this.osPlatformBadge = document.getElementById('os-platform-badge')!;
 
     this.initEventListeners();
+    // The backend builds thumbnails for older image clips in the background.
+    listen<{ id: string; thumbnail: string }>('clip-thumbnail', (event) => {
+      const clip = this.clips.find((c) => c.id === event.payload.id);
+      if (clip && event.payload.thumbnail) {
+        clip.thumbnail = event.payload.thumbnail;
+        this.renderClips();
+      }
+    });
+
     this.loadClips();
     this.initTauriListeners();
     this.loadSettings();
@@ -242,6 +268,9 @@ class ClipzApp {
 
   private async setNotchState(state: 'pill' | 'preview' | 'expanded') {
     this.currentState = state;
+    if (state === 'expanded') {
+      this.startDeferredWork();
+    }
     clearTimeout(this.previewTimer);
     clearTimeout(this.collapseWindowTimer);
     clearTimeout(this.hoverCollapseTimer);
@@ -249,6 +278,7 @@ class ClipzApp {
     switch (state) {
       case 'pill':
         this.isExpanded = false;
+        this.awaitingPointerEntry = false;
         this.closeSettingsPanel();
         this.closeAllModals();
         void this.notchShell.offsetWidth;
@@ -279,7 +309,13 @@ class ClipzApp {
 
       case 'expanded':
         this.isExpanded = true;
-        this.expandCooldownUntil = Date.now() + 500;
+        // Opening is itself an interaction. Without this, a drawer opened by
+        // the keyboard shortcut while the pointer is elsewhere closed itself
+        // again: the blur guard waits 350ms and the cooldown only covered
+        // 500ms, so any blur arriving more than 150ms after opening shut it.
+        this.lastInteractionAt = Date.now();
+        this.expandCooldownUntil = Date.now() + 1200;
+        this.awaitingPointerEntry = true;
         try {
           await invoke('expand_window');
         } catch (_) {}
@@ -739,9 +775,13 @@ class ClipzApp {
       await listen<boolean>('pointer-outside', (event) => {
         if (event.payload) {
           this.pointerInsideNotch = false;
-          this.scheduleHoverCollapse();
+          // The pointer has not been in the drawer yet, so it cannot have left.
+          if (!this.awaitingPointerEntry) {
+            this.scheduleHoverCollapse();
+          }
         } else {
           this.pointerInsideNotch = true;
+          this.awaitingPointerEntry = false;
           clearTimeout(this.hoverCollapseTimer);
         }
       });
@@ -773,11 +813,22 @@ class ClipzApp {
     }
   }
 
-  private getImageUrl(clip: ClipItem): string {
-    if (this.blobUrlMap.has(clip.id)) {
+  /// The small preview for a card. List results carry a thumbnail rather than
+  /// the image itself, so this never triggers a megabyte-scale decode.
+  private getThumbnailUrl(clip: ClipItem): string {
+    if (clip.thumbnail) {
+      return clip.thumbnail;
+    }
+    // No thumbnail yet: the background pass has not reached this clip. Show
+    // nothing rather than pulling the full image across for a 40px preview.
+    return clip.content ? this.getImageUrl(clip) : '';
+  }
+
+  private getImageUrl(clip: ClipItem, override?: string): string {
+    if (!override && this.blobUrlMap.has(clip.id)) {
       return this.blobUrlMap.get(clip.id)!;
     }
-    const content = clip.content || '';
+    const content = override || clip.content || '';
     if (content.startsWith('blob:') || content.startsWith('http')) {
       return content;
     }
@@ -808,10 +859,42 @@ class ClipzApp {
     }
   }
 
+  /// Queue an image for text recognition.
+  ///
+  /// Rendering the list used to start recognition for every image at once. On a
+  /// history with twenty un-read images that pinned the CPU for the whole of
+  /// startup, because each one decodes megabytes of image data before the
+  /// recogniser even runs. They now go through one at a time, and not until the
+  /// window has had a moment to settle.
   private requestOcrExtraction(id: string) {
-    if (this.pendingOcrIds.has(id)) return;
+    if (this.pendingOcrIds.has(id) || this.ocrQueue.includes(id)) return;
+    this.ocrQueue.push(id);
+    this.scheduleOcrQueue();
+  }
+
+  private scheduleOcrQueue() {
+    // Nothing is recognised until the drawer has been opened. Clipz usually
+    // starts with the machine, and someone who never opens it should not pay
+    // for recognition they cannot see.
+    if (!this.hasOpenedDrawer || this.ocrRunning || this.ocrQueue.length === 0) return;
+    this.ocrRunning = true;
+    window.setTimeout(() => this.drainOcrQueue(), this.OCR_IDLE_DELAY_MS);
+  }
+
+  private async drainOcrQueue() {
+    while (this.ocrQueue.length > 0) {
+      const id = this.ocrQueue.shift()!;
+      await this.runOcrExtraction(id);
+      // Breathe between images so recognition never monopolises the machine.
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    this.ocrRunning = false;
+  }
+
+  private runOcrExtraction(id: string): Promise<void> {
+    if (this.pendingOcrIds.has(id)) return Promise.resolve();
     this.pendingOcrIds.add(id);
-    invoke<string | null>('extract_clip_ocr', { id })
+    return invoke<string | null>('extract_clip_ocr', { id })
       .then((text) => {
         if (text && text.trim().length > 0) {
           const target = this.clips.find((c) => c.id === id);
@@ -1087,6 +1170,13 @@ class ClipzApp {
     this.setNotchState('expanded');
   }
 
+  /// Recognition waits for the drawer, so releasing the queue is part of opening it.
+  private startDeferredWork() {
+    if (this.hasOpenedDrawer) return;
+    this.hasOpenedDrawer = true;
+    this.scheduleOcrQueue();
+  }
+
   private async collapseNotch() {
     this.setNotchState('pill');
   }
@@ -1131,7 +1221,10 @@ class ClipzApp {
       return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
     }
     if (clip.category === 'image') {
-      const src = this.getImageUrl(clip);
+      const src = this.getThumbnailUrl(clip);
+      if (!src) {
+        return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
+      }
       return `<img src="${src}" class="clip-thumb-img" alt="Thumbnail" loading="lazy" />`;
     }
     switch (clip.category) {
@@ -1330,6 +1423,17 @@ class ClipzApp {
         } else if (clip) {
           const isExpanded = card.classList.toggle('expanded-text');
           const mainTextEl = card.querySelector('.clip-main-text');
+          if (isExpanded && clip.truncated) {
+            invoke<string | null>('get_clip_content', { id: clip.id })
+              .then((full) => {
+                if (full) {
+                  clip.content = full;
+                  clip.truncated = false;
+                  this.renderClips();
+                }
+              })
+              .catch((err) => console.error('Failed to load the full clip:', err));
+          }
           if (mainTextEl) {
             if (isExpanded) {
               if (clip.is_sensitive) {
@@ -1701,8 +1805,23 @@ class ClipzApp {
       contentSrc = clip.content;
     }
 
-    const src = clip ? this.getImageUrl(clip) : (contentSrc.startsWith('data:') ? contentSrc : `data:image/png;base64,${contentSrc}`);
+    // Show the preview immediately, then swap in the full image once it arrives.
+    const src = clip
+      ? this.getThumbnailUrl(clip) || this.getImageUrl(clip)
+      : contentSrc.startsWith('data:')
+        ? contentSrc
+        : `data:image/png;base64,${contentSrc}`;
     this.lightboxImg.src = src;
+    if (clip && !clip.content) {
+      const target = clip;
+      invoke<string | null>('get_clip_content', { id: target.id })
+        .then((full) => {
+          if (full && this.activeLightboxClip?.id === target.id) {
+            this.lightboxImg.src = this.getImageUrl(target, full);
+          }
+        })
+        .catch((err) => console.error('Failed to load the full image:', err));
+    }
     this.activeLightboxClip = clip || null;
 
     if (this.lightboxInfoCard) {
