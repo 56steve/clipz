@@ -16,6 +16,12 @@ pub struct ClipItem {
     pub paste_count: u32,
     pub reminder_at: Option<i64>,
     pub ocr_text: Option<String>,
+    /// A small preview for image clips. The full image lives in `content` in
+    /// the database but is deliberately left out of list results.
+    pub thumbnail: Option<String>,
+    /// Set when `content` in this result is only the beginning of the clip.
+    /// Ask `get_clip_content` for the rest.
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +34,47 @@ pub struct PasteLogItem {
 
 pub struct DatabaseManager {
     conn: Mutex<Connection>,
+}
+
+/// Characters of a text clip carried in list results. Comfortably more than a
+/// card or the expanded view shows, while keeping fifty clips small.
+const LIST_CONTENT_LIMIT: usize = 20_000;
+
+/// Map a row for the clip list.
+///
+/// An image clip's `content` is megabytes of base64 — 63 MB across the fifty
+/// clips loaded at startup, all of it serialised through IPC to draw 40px
+/// previews, which is what made the app hang on launch. List results carry the
+/// thumbnail instead; `get_content` serves the full image to whatever actually
+/// needs it.
+fn list_row(row: &rusqlite::Row) -> Result<ClipItem> {
+    let category: String = row.get(3)?;
+    let sensitive_int: i32 = row.get(4)?;
+    let pinned_int: i32 = row.get(5)?;
+
+    // The query hands back at most LIST_CONTENT_LIMIT + 1 characters, and an
+    // empty string for images, so nothing large is read from disk here.
+    let mut content: String = row.get(1)?;
+    let mut truncated = false;
+    if content.chars().count() > LIST_CONTENT_LIMIT {
+        truncated = true;
+        content = content.chars().take(LIST_CONTENT_LIMIT).collect();
+    }
+
+    Ok(ClipItem {
+        id: row.get(0)?,
+        content,
+        source_app: row.get(2)?,
+        category,
+        is_sensitive: sensitive_int != 0,
+        is_pinned: pinned_int != 0,
+        created_at: row.get(6)?,
+        paste_count: row.get(7)?,
+        reminder_at: row.get(8)?,
+        ocr_text: row.get(9)?,
+        thumbnail: row.get(10)?,
+        truncated,
+    })
 }
 
 impl DatabaseManager {
@@ -140,6 +187,20 @@ impl DatabaseManager {
         // `content` keeps the mask the UI shows and the FTS triggers index, so
         // secrets never reach the search index.
         let _ = conn.execute("ALTER TABLE clips ADD COLUMN secret_blob BLOB;", []);
+        let _ = conn.execute("ALTER TABLE clips ADD COLUMN thumbnail TEXT;", []);
+
+        // The clip list is always ordered by pin then recency. Without this the
+        // query is a full table scan plus a temp sort, which on a history full
+        // of images means reading hundreds of megabytes to show fifty rows —
+        // two seconds of the startup delay came from here alone.
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_clips_recent ON clips(is_pinned DESC, created_at DESC);",
+            [],
+        );
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_clips_thumbnail_pending ON clips(category, thumbnail);",
+            [],
+        );
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -165,6 +226,48 @@ impl DatabaseManager {
             ],
         )?;
         Ok(())
+    }
+
+    /// The full content of one clip, including an image's base64 payload.
+    pub fn get_content(&self, id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT content FROM clips WHERE id = ?1")?;
+        let mut rows = stmt.query(params![id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_thumbnail(&self, id: &str, thumbnail: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let changed = conn.execute(
+            "UPDATE clips SET thumbnail = ?1 WHERE id = ?2",
+            params![thumbnail, id],
+        )?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
+    }
+
+    /// Image clips captured before thumbnails existed, newest first, as
+    /// (id, content) pairs ready to shrink.
+    pub fn images_without_thumbnails(&self, limit: usize) -> Result<Vec<(String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, content FROM clips
+             WHERE category = 'image' AND thumbnail IS NULL
+             ORDER BY created_at DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     /// Store the sealed bytes of a sensitive clip.
@@ -200,26 +303,11 @@ impl DatabaseManager {
     pub fn get_recent_clips(&self, limit: usize) -> Result<Vec<ClipItem>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count, reminder_at, ocr_text
+            "SELECT id, CASE WHEN category = 'image' THEN '' ELSE substr(content, 1, 20001) END, source_app, category, is_sensitive, is_pinned, created_at, paste_count, reminder_at, ocr_text, thumbnail
              FROM clips ORDER BY is_pinned DESC, created_at DESC LIMIT ?1",
         )?;
 
-        let clip_iter = stmt.query_map(params![limit as i64], |row| {
-            let sensitive_int: i32 = row.get(4)?;
-            let pinned_int: i32 = row.get(5)?;
-            Ok(ClipItem {
-                id: row.get(0)?,
-                content: row.get(1)?,
-                source_app: row.get(2)?,
-                category: row.get(3)?,
-                is_sensitive: sensitive_int != 0,
-                is_pinned: pinned_int != 0,
-                created_at: row.get(6)?,
-                paste_count: row.get(7)?,
-                reminder_at: row.get(8)?,
-                ocr_text: row.get(9)?,
-            })
-        })?;
+        let clip_iter = stmt.query_map(params![limit as i64], |row| list_row(row))?;
 
         let mut items = Vec::new();
         for item in clip_iter {
@@ -241,7 +329,7 @@ impl DatabaseManager {
         let fts_query = format!("\"{}\"*", sanitized_fts);
 
         let fts_res = conn.prepare(
-            "SELECT c.id, c.content, c.source_app, c.category, c.is_sensitive, c.is_pinned, c.created_at, c.paste_count, c.reminder_at, c.ocr_text
+            "SELECT c.id, CASE WHEN c.category = 'image' THEN '' ELSE substr(c.content, 1, 20001) END, c.source_app, c.category, c.is_sensitive, c.is_pinned, c.created_at, c.paste_count, c.reminder_at, c.ocr_text, c.thumbnail
              FROM clips c
              JOIN clips_fts fts ON c.id = fts.id
              WHERE clips_fts MATCH ?1
@@ -250,22 +338,7 @@ impl DatabaseManager {
         );
 
         if let Ok(mut stmt) = fts_res {
-            let clip_iter = stmt.query_map(params![fts_query], |row| {
-                let sensitive_int: i32 = row.get(4)?;
-                let pinned_int: i32 = row.get(5)?;
-                Ok(ClipItem {
-                    id: row.get(0)?,
-                    content: row.get(1)?,
-                    source_app: row.get(2)?,
-                    category: row.get(3)?,
-                    is_sensitive: sensitive_int != 0,
-                    is_pinned: pinned_int != 0,
-                    created_at: row.get(6)?,
-                    paste_count: row.get(7)?,
-                    reminder_at: row.get(8)?,
-                    ocr_text: row.get(9)?,
-                })
-            });
+            let clip_iter = stmt.query_map(params![fts_query], |row| list_row(row));
 
             if let Ok(iter) = clip_iter {
                 let mut items = Vec::new();
@@ -283,29 +356,14 @@ impl DatabaseManager {
         // 2. Fallback Substring Search (handles URLs, symbols, code snippets, OCR text, etc.)
         let like_param = format!("%{}%", clean_query);
         let mut fallback_stmt = conn.prepare(
-            "SELECT id, content, source_app, category, is_sensitive, is_pinned, created_at, paste_count, reminder_at, ocr_text
+            "SELECT id, CASE WHEN category = 'image' THEN '' ELSE substr(content, 1, 20001) END, source_app, category, is_sensitive, is_pinned, created_at, paste_count, reminder_at, ocr_text, thumbnail
              FROM clips
              WHERE content LIKE ?1 OR source_app LIKE ?1 OR ocr_text LIKE ?1
              ORDER BY is_pinned DESC, created_at DESC
              LIMIT 50",
         )?;
 
-        let clip_iter = fallback_stmt.query_map(params![like_param], |row| {
-            let sensitive_int: i32 = row.get(4)?;
-            let pinned_int: i32 = row.get(5)?;
-            Ok(ClipItem {
-                id: row.get(0)?,
-                content: row.get(1)?,
-                source_app: row.get(2)?,
-                category: row.get(3)?,
-                is_sensitive: sensitive_int != 0,
-                is_pinned: pinned_int != 0,
-                created_at: row.get(6)?,
-                paste_count: row.get(7)?,
-                reminder_at: row.get(8)?,
-                ocr_text: row.get(9)?,
-            })
-        })?;
+        let clip_iter = fallback_stmt.query_map(params![like_param], |row| list_row(row))?;
 
         let mut items = Vec::new();
         for item in clip_iter {

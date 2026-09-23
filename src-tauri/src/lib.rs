@@ -3,6 +3,7 @@ pub mod db;
 pub mod ocr;
 pub mod paste_tracker;
 pub mod security;
+pub mod thumbnail;
 
 use db::{ClipItem, DatabaseManager};
 use security::SecurityManager;
@@ -21,6 +22,11 @@ fn get_clips(state: State<'_, Arc<AppState>>, limit: Option<usize>) -> Result<Ve
         .db
         .get_recent_clips(limit.unwrap_or(50))
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_clip_content(state: State<'_, Arc<AppState>>, id: String) -> Result<Option<String>, String> {
+    state.db.get_content(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -48,6 +54,14 @@ fn copy_to_clipboard(
     auto_paste: Option<bool>,
 ) -> Result<(), String> {
     let should_auto_paste = auto_paste.unwrap_or(false);
+
+    // List results carry images without their payload and long text only as a
+    // prefix, so the clipboard is filled from the stored clip rather than from
+    // whatever the UI happened to be holding.
+    let content = id
+        .as_ref()
+        .and_then(|clip_id| state.db.get_content(clip_id).ok().flatten())
+        .unwrap_or(content);
 
     #[cfg(windows)]
     unsafe {
@@ -772,6 +786,41 @@ pub fn run() {
                     .build(app);
             }
 
+            // Clips captured before thumbnails existed have none, and without one
+            // the UI would have to pull the whole image to draw a preview. Build
+            // them in the background, a few at a time, so an old history catches
+            // up without delaying startup or pinning a core.
+            let handle_thumbs = handle.clone();
+            let state_thumbs = Arc::clone(&app_state);
+            std::thread::spawn(move || loop {
+                let pending = match state_thumbs.db.images_without_thumbnails(4) {
+                    Ok(pending) if pending.is_empty() => return,
+                    Ok(pending) => pending,
+                    Err(e) => {
+                        eprintln!("Clipz: could not look up clips needing thumbnails: {e}");
+                        return;
+                    }
+                };
+
+                for (id, content) in pending {
+                    let Some(small) = thumbnail::shrink(&content) else {
+                        // Unreadable image: mark it done so it is not retried forever.
+                        let _ = state_thumbs.db.set_thumbnail(&id, "");
+                        continue;
+                    };
+                    if let Err(e) = state_thumbs.db.set_thumbnail(&id, &small) {
+                        eprintln!("Clipz: could not store a thumbnail: {e}");
+                        return;
+                    }
+                    let _ = handle_thumbs.emit(
+                        "clip-thumbnail",
+                        serde_json::json!({ "id": id, "thumbnail": small }),
+                    );
+                }
+
+                std::thread::sleep(std::time::Duration::from_millis(150));
+            });
+
             // Watch the pointer so the drawer can close when it leaves.
             let handle_pointer = handle.clone();
             std::thread::spawn(move || {
@@ -827,6 +876,8 @@ pub fn run() {
                         paste_count: 0,
                         reminder_at: None,
                         ocr_text: None,
+                        thumbnail: None,
+                        truncated: false,
                     };
 
                     // Only save to DB if NOT sensitive or if masked representation
@@ -853,6 +904,20 @@ pub fn run() {
                     // Update active clip ID for paste tracking
                     if let Ok(mut active_id_guard) = state_clip.active_clip_id.lock() {
                         *active_id_guard = Some(clip_id.clone());
+                    }
+
+                    // The UI never needs the full image: it draws a small preview and
+                    // asks for the original only when someone opens or copies it.
+                    // Shrinking first keeps megabytes out of the event payload.
+                    let mut item = item;
+                    if category == "image" {
+                        if let Some(small) = thumbnail::shrink(&raw_event.content) {
+                            if let Err(e) = state_clip.db.set_thumbnail(&clip_id, &small) {
+                                eprintln!("Clipz: could not store a thumbnail: {e}");
+                            }
+                            item.thumbnail = Some(small);
+                        }
+                        item.content = String::new();
                     }
 
                     // Emit real-time stream update to WebView Notch UI instantly (<5ms)
@@ -906,6 +971,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_clips,
+            get_clip_content,
             search_clips,
             copy_to_clipboard,
             delete_clip,
