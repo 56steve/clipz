@@ -11,9 +11,12 @@ Searchable history, automatic categorization and encrypted secrets — one hover
 ![Language](https://img.shields.io/badge/Rust-TypeScript-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-[![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-Get%20it-0078D4?logo=windows&logoColor=white)](https://apps.microsoft.com/detail/9n02k65s7rmw)
 
-[**Get it on the Microsoft Store**](https://apps.microsoft.com/detail/9n02k65s7rmw) · [Download](https://github.com/56steve/clipz/releases/latest) · [Features](#-features) · [Security](#-security) · [Build from source](#-build-from-source)
+<a href="https://apps.microsoft.com/detail/9n02k65s7rmw">
+  <img src="https://get.microsoft.com/images/en-us%20light.svg" alt="Download Clipz from the Microsoft Store" width="200">
+</a>
+
+[Download](https://github.com/56steve/clipz/releases/latest) · [Features](#-features) · [Security](#-security) · [Build from source](#-build-from-source)
 
 <img src="docs/screenshots/01-notch.png" alt="Clipz notch collapsed at the top of the screen" width="720">
 
@@ -37,7 +40,11 @@ Searchable history, automatic categorization and encrypted secrets — one hover
 
 ## ⬇️ Download
 
-**Windows:** install Clipz from the [**Microsoft Store**](https://apps.microsoft.com/detail/9n02k65s7rmw) for one-click install and automatic updates.
+**Windows:** install Clipz from the Microsoft Store for one-click install and automatic updates.
+
+<a href="https://apps.microsoft.com/detail/9n02k65s7rmw">
+  <img src="https://get.microsoft.com/images/en-us%20light.svg" alt="Download Clipz from the Microsoft Store" width="200">
+</a>
 
 Or grab a build from the [**Releases page**](https://github.com/56steve/clipz/releases/latest):
 
