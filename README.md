@@ -11,6 +11,7 @@ Searchable history, automatic categorization and encrypted secrets — one hover
 ![Language](https://img.shields.io/badge/Rust-TypeScript-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-Get%20it-0078D4?logo=windows&logoColor=white)](https://apps.microsoft.com/detail/9n02k65s7rmw)
 
 [**Get it on the Microsoft Store**](https://apps.microsoft.com/detail/9n02k65s7rmw) · [Download](https://github.com/56steve/clipz/releases/latest) · [Features](#-features) · [Security](#-security) · [Build from source](#-build-from-source)
 
@@ -181,4 +182,4 @@ Issues and pull requests are welcome. If Clipz is useful to you, a ⭐ on the re
 
 ## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](LICENSE).
