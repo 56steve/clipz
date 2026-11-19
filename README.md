@@ -1,6 +1,8 @@
 <div align="center">
 
-# Clipz ✂️
+<img src="docs/icon.png" alt="Clipz app icon" width="112">
+
+# Clipz
 
 ### A clipboard manager that lives in your notch.
 
