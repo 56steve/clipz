@@ -18,7 +18,7 @@ Searchable history, automatic categorization and encrypted secrets — one hover
   <img src="https://get.microsoft.com/images/en-us%20light.svg" alt="Download Clipz from the Microsoft Store" width="200">
 </a>
 
-[Download](https://github.com/56steve/clipz/releases/latest) · [Features](#-features) · [Security](#-security) · [Build from source](#-build-from-source)
+[Website](https://clippz.vercel.app/) · [Download](https://github.com/56steve/clipz/releases/latest) · [Features](#-features) · [Security](#-security) · [Build from source](#-build-from-source)
 
 <img src="docs/screenshots/01-notch.png" alt="Clipz notch collapsed at the top of the screen" width="720">
 
